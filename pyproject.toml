@@ -29,7 +29,7 @@ dependencies = ["imageproc",
                 "croaks",
                 "ztfquery",
                 "dask",
-                "distributed"
+                "distributed",
                 "joblib",
                 "astropy",
                 "pandas",
