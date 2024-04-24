@@ -215,7 +215,7 @@ def reduce_op(wd, name, filtercode, func, save_stats, args, op_args):
 
         dump_timings_reduce({'map': map_start_time, 'reduce': start_time},
                             {'map': map_end_time, 'reduce': end_time},
-                            band_path.joinpath("timings_{}".format(func)))
+                            lightcurve_path.joinpath("timings_{}".format(func)))
 
     return 0
 
@@ -391,7 +391,10 @@ def main():
         for filtercode in filtercodes:
             print("Building compute tree for {}-{}... ".format(ztfname, filtercode), flush=True, end="")
 
-            band_path = args.wd.joinpath("{}/{}".format(ztfname, filtercode))
+            if args.scratch:
+                band_path = args.scratch.joinpath("{}/{}".format(ztfname, filtercode))
+            else:
+                band_path = args.wd.joinpath("{}/{}".format(ztfname, filtercode))
 
             if not band_path.exists():
                 print("No quadrant found.")
@@ -419,7 +422,7 @@ def main():
 
             # Save SLURM node configurations
             if args.slurm:
-                with open(band_path.joinpath("run_slurm_{}.txt".format(run_count))) as f:
+                with open(band_path.joinpath("run_slurm_{}.txt".format(run_count)), 'w') as f:
                     f.write("SLURM_JOB_NODELIST:\t {}\n".format(os.environ['SLURM_JOB_NODELIST']))
                     f.write("SLURM_CPUS_ON_NODE: \t {}\n".format(os.environ['SLURM_CPUS_ON_NODE']))
                     f.write("SLURM_MEM_PER_NODE: \t {}\n".format(os.environ['SLURM_MEM_PER_NODE']))

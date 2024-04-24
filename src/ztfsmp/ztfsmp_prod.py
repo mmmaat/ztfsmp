@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import importlib
 import argparse
 import pathlib
 import sys
@@ -21,7 +22,7 @@ def get_current_running_sne():
     scheduled_jobs_raw = out.stdout.decode('utf-8').split("\n")
     return dict([(scheduled_job.split(",")[0][4:], scheduled_job.split(",")[1]) for scheduled_job in scheduled_jobs_raw if scheduled_job[:4] == "smp_"])
 
-def generate_jobs(wd, run_folder, ops, run_name, lightcurves):
+def generate_jobs(wd, run_folder, ops, run_name, lightcurves, ntasks, run_arguments):
     print("Working directory: {}".format(wd))
     print("Run folder: {}".format(run_folder))
     print("Pipeline description: {}".format(ops))
@@ -42,10 +43,10 @@ def generate_jobs(wd, run_folder, ops, run_name, lightcurves):
 echo "running" > {status_path}
 ulimit -n 4096
 
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 deppol --ztfname={ztfname} --filtercode={filtercode} -j $SLURM_NTASKS --wd={wd} --ops={ops} --run-arguments={run_arguments}
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 ztfsmp-pipeline --ztfname={ztfname} --filtercode={filtercode} -j $SLURM_NTASKS --wd={wd} --func={ops} --run-arguments={run_arguments}
 
 echo "done" > {status_path}
-""".format(ztfname=lightcurve_folder, filtercode=filtercode, wd=wd, ops=",".join(ops), status_path=run_folder.joinpath("{}/status/{}-{}".format(run_name, lightcurve_folder, filtercode)), j=args.ntasks)
+""".format(ztfname=lightcurve_folder, filtercode=filtercode, wd=wd, ops=ops, status_path=run_folder.joinpath("{}/status/{}-{}".format(run_name, lightcurve_folder, filtercode)), j=ntasks, run_arguments=run_arguments)
             with open(batch_folder.joinpath("{}-{}.sh".format(lightcurve_folder, filtercode)), 'w') as f:
                 f.write(job)
 
@@ -189,8 +190,10 @@ def main():
     argparser.add_argument('--ntasks', default=1, type=int, help="Number of worker to use when submitting jobs")
     argparser.add_argument('--purge-status', action='store_true')
     argparser.add_argument('--ztfname', type=pathlib.Path, help="If left empty, process all lightcurves in the working directory. If it corresponds to one lightcurve folder (such as a SN folder), process this one in each available bands. If it corresponds to a lightcurve folder name and a filtercode, separated by \"-\" (e.g. ZTF19aaripqw-zg), only process the specified lightcurve. If set to a valid filename, interpret each line of it in the same way as previously described")
+    argparser.add_argument('--run-arguments', type=pathlib.Path)
 
     args = argparser.parse_args()
+    args.run_folder = args.run_folder.expanduser().resolve()
 
     if args.ztfname:
         args.ztfname = args.ztfname.expanduser().resolve()
@@ -215,11 +218,19 @@ def main():
     print("Found {} lightcurve folders, totalling {} lightcurves!".format(len(lightcurves), len(list(itertools.chain.from_iterable(list(lightcurves.values()))))))
 
     if args.generate_jobs:
+        args.run_arguments = args.run_arguments.expanduser().resolve()
+        args.ops = args.ops.expanduser().resolve()
 
         # Check the pipeline description file is valid
-        pipeline.read_pipeline_from_file(args.func)
+        import ztfsmp.ztfsmp_pipeline as ztfsmp_pipeline
+        search_paths = [pathlib.Path(ztfsmp_pipeline.__file__).parent]
+        for search_path in search_paths:
+            for ops_module in list(search_path.glob("ops_*.py")):
+                globals()[ops_module] = importlib.import_module("ztfsmp." + str(ops_module.stem))
 
-        generate_jobs(args.wd, args.run_folder, args.ops, args.run_name, lightcurves)
+        pipeline.read_pipeline_from_file(args.ops)
+
+        generate_jobs(args.wd, args.run_folder, args.ops, args.run_name, lightcurves, args.ntasks, args.run_arguments)
 
     if args.schedule_jobs:
         schedule_jobs(args.run_folder, args.run_name, lightcurves)

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 import argparse
 import pathlib
@@ -24,6 +25,12 @@ class RunArguments(argparse.ArgumentParser):
                 lines = f.readlines()
                 for line in lines:
                     run_arguments.extend(line.strip().split())
+
+            # Resolve environement variables
+            for i in range(len(run_arguments)):
+                run_argument = run_arguments[i]
+                if "$" in run_argument:
+                    run_arguments[i] = os.path.expandvars(run_argument)
 
             # Arguments are overriden by command line
             parsed = super().parse_args(run_arguments+args, namespace)
