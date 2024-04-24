@@ -27,7 +27,14 @@ classifiers = [
 dependencies = ["imageproc",
                 "saunerie",
                 "croaks",
-                "ztfquery"]
+                "ztfquery",
+                "dask",
+                "distributed"
+                "joblib",
+                "astropy",
+                "pandas",
+                "numpy",
+                "scikit-sparse"]
 
 [project.urls]
 Documentation = "https://github.com/lacroixle/ztfsmp#readme"

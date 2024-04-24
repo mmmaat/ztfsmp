@@ -11,9 +11,9 @@ import itertools
 import pandas as pd
 from joblib import Parallel, delayed
 
-
-from deppol_utils import run_and_log, load_timings, quadrants_from_band_path
-import utils
+from ztfsmp.pipeline import pipeline
+from ztfsmp.pipeline_utils import run_and_log
+from ztfsmp.ztf_utils import filtercodes
 
 
 def get_current_running_sne():
@@ -21,10 +21,10 @@ def get_current_running_sne():
     scheduled_jobs_raw = out.stdout.decode('utf-8').split("\n")
     return dict([(scheduled_job.split(",")[0][4:], scheduled_job.split(",")[1]) for scheduled_job in scheduled_jobs_raw if scheduled_job[:4] == "smp_"])
 
-def generate_jobs(wd, run_folder, func, run_name, lightcurves):
+def generate_jobs(wd, run_folder, ops, run_name, lightcurves):
     print("Working directory: {}".format(wd))
     print("Run folder: {}".format(run_folder))
-    print("Func list: {}".format(func))
+    print("Pipeline description: {}".format(ops))
 
     print("Saving jobs under {}".format(run_folder))
     batch_folder = run_folder.joinpath("{}/batches".format(run_name))
@@ -34,29 +34,18 @@ def generate_jobs(wd, run_folder, func, run_name, lightcurves):
     batch_folder.mkdir(exist_ok=True)
     log_folder.mkdir(exist_ok=True)
     status_folder.mkdir(exist_ok=True)
-
-#OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 deppol --ztfname={} --filtercode={} -j {j} --wd={} --func={} --lc-folder=/sps/ztf/data/storage/scenemodeling/lc --exposure-workspace=/dev/shm/llacroix --rm-intermediates --scratch=${{TMPDIR}}/llacroix --astro-degree=5 --max-seeing=4.5 --discard-calibrated --from-scratch --dump-timings --parallel-reduce --use-gaia-stars --ext-catalog-cache=/sps/ztf/data/storage/scenemodeling/cat_cache --footprints=~/data/ztf/starflat_footprints.csv --discard-calibrated
-# deppol --ztfname={} --filtercode={} -j {j} --wd={} --func={} --lc-folder=/sps/ztf/data/storage/scenemodeling/lc --rm-intermediates --dump-timings --parallel-reduce --use-gaia-stars --ext-catalog-cache=/sps/ztf/data/storage/scenemodeling/cat_cache --photom-max-star-chi2=4. --photom-cat=ps1 --astro-max-chi2=3. --astro-degree=5 --scratch=$TMPDIR/llacroix --from-scratch
-#OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 deppol --ztfname={ztfname} --filtercode={filtercode} -j {j} --wd={wd} --func={func} --lc-folder={lc_folder} --exposure-workspace=/dev/shm/llacroix --rm-intermediates --scratch=${{TMPDIR}}/llacroix --astro-degree=5 --discard-calibrated --from-scratch --dump-timings --parallel-reduce --use-gaia-stars --ext-catalog-cache=/sps/ztf/data/storage/scenemodeling/cat_cache --discard-calibrated
 #
     for lightcurve_folder in lightcurves.keys():
         for filtercode in lightcurves[lightcurve_folder]:
             print("{}-{}".format(lightcurve_folder, filtercode))
             job = """#!/bin/sh
 echo "running" > {status_path}
-conda activate pol
-deppol_dask_env.sh
 ulimit -n 4096
-export OMP_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
 
-# Command line for SNe lightcurves
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 deppol --ztfname={ztfname} --filtercode={filtercode} -j $SLURM_NTASKS --wd={wd} --func={func} --lc-folder={lc_folder} --exposure-workspace=/dev/shm/llacroix --rm-intermediates --scratch=${{TMPDIR}}/llacroix --astro-degree=5 --discard-calibrated --from-scratch --dump-timings --parallel-reduce --use-gaia-stars --ext-catalog-cache=/sps/ztf/data/storage/scenemodeling/cat_cache
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 deppol --ztfname={ztfname} --filtercode={filtercode} -j $SLURM_NTASKS --wd={wd} --ops={ops} --run-arguments={run_arguments}
 
-# Command line for starflats
-#OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 deppol --ztfname={ztfname} --filtercode={filtercode} -j $SLURM_NTASKS --wd={wd} --func={func} --rm-intermediates --dump-timings --use-gaia-stars
 echo "done" > {status_path}
-""".format(ztfname=lightcurve_folder, filtercode=filtercode, wd=wd, func=",".join(func), status_path=run_folder.joinpath("{}/status/{}-{}".format(run_name, lightcurve_folder, filtercode)), j=args.ntasks, lc_folder="/sps/ztf/data/storage/scenemodeling/lc")
+""".format(ztfname=lightcurve_folder, filtercode=filtercode, wd=wd, ops=",".join(ops), status_path=run_folder.joinpath("{}/status/{}-{}".format(run_name, lightcurve_folder, filtercode)), j=args.ntasks)
             with open(batch_folder.joinpath("{}-{}.sh".format(lightcurve_folder, filtercode)), 'w') as f:
                 f.write(job)
 
@@ -129,7 +118,7 @@ def lightcurves_from_ztfname(wd, ztfname):
     if ztfname is None:
         for lightcurve_folder in list(wd.glob("*")):
             bands = []
-            for filtercode in utils.filtercodes:
+            for filtercode in filtercodes:
                 if lightcurve_folder.joinpath(filtercode).exists():
                     bands.append(filtercode)
 
@@ -155,7 +144,7 @@ def lightcurves_from_ztfname(wd, ztfname):
             # This line only specify a lightcurve_folder
             else:
                 lightcurve_folder = line
-                bands = list(map(lambda x: x.name, list(filter(lambda x: x not in utils.filtercodes, list(wd.joinpath(lightcurve_folder).glob("z*"))))))
+                bands = list(map(lambda x: x.name, list(filter(lambda x: x not in filtercodes, list(wd.joinpath(lightcurve_folder).glob("z*"))))))
                 if len(bands) == 0:
                     continue
 
@@ -171,15 +160,15 @@ def lightcurves_from_ztfname(wd, ztfname):
         # SN and band combination
         if "-" in ztfname:
             lightcurve_folder, band = ztfname.split("-")
-            if band in utils.filtercodes and wd.joinpath("{}/{}".format(lightcurve_folder, band)).exists():
+            if band in filtercodes and wd.joinpath("{}/{}".format(lightcurve_folder, band)).exists():
                 lightcurves[lightcurve_folder] = [band]
             else:
-                print("For SN/lightcurve_folder {}, {} does not correspond to a valid filtercode! (or there might be no corresponding folder)".format(lightcurve_folder, band, utils.filtercodes)) # Cryptic error message
+                print("For SN/lightcurve_folder {}, {} does not correspond to a valid filtercode! (or there might be no corresponding folder)".format(lightcurve_folder, band, filtercodes)) # Cryptic error message
                 sys.exit()
 
         # Only a SN, get all bands from working directory
         elif wd.joinpath(ztfname).exists():
-            bands = list(filter(lambda x: x in utils.filtercodes, list(wd.joinpath(ztfname).glob("z*"))))
+            bands = list(filter(lambda x: x in filtercodes, list(wd.joinpath(ztfname).glob("z*"))))
             lightcurves[ztfname] = bands
 
         else:
@@ -190,16 +179,15 @@ def lightcurves_from_ztfname(wd, ztfname):
 
 
 if __name__ == '__main__':
-    argparser = argparse.ArgumentParser(description="")
+    argparser = argparse.ArgumentParser(description="Deploy ztfsmp on a SLURM cluster. For now only support CC IN2P3 cluster.")
     argparser.add_argument('--generate-jobs', action='store_true', help="If set, generate list of jobs")
     argparser.add_argument('--schedule-jobs', action='store_true', help="If set, schedule jobs onto SLURM")
     argparser.add_argument('--wd', type=pathlib.Path, required=False, help="Working directory.")
     argparser.add_argument('--run-folder', type=pathlib.Path, required=True)
-    argparser.add_argument('--func', type=pathlib.Path, help="Comma separated list of pipeline operations. If a valid file, read from it instead, where each line correspond to a pipeline operation.")
+    argparser.add_argument('--ops', type=pathlib.Path, help="Pipeline description to run. See ztfsmp-pipeline for valid operations.")
     argparser.add_argument('--run-name', type=str, required=True)
     argparser.add_argument('--ntasks', default=1, type=int, help="Number of worker to use when submitting jobs")
     argparser.add_argument('--purge-status', action='store_true')
-    argparser.add_argument('--purge', action='store_true')
     argparser.add_argument('--ztfname', type=pathlib.Path, help="If left empty, process all lightcurves in the working directory. If it corresponds to one lightcurve folder (such as a SN folder), process this one in each available bands. If it corresponds to a lightcurve folder name and a filtercode, separated by \"-\" (e.g. ZTF19aaripqw-zg), only process the specified lightcurve. If set to a valid filename, interpret each line of it in the same way as previously described")
 
     args = argparser.parse_args()
@@ -220,25 +208,6 @@ if __name__ == '__main__':
     if not args.run_folder.exists():
         sys.exit("Run folder does not exist!")
 
-    if args.func:
-        funcs = []
-        # If points to a correct file, read from it
-        if args.func.exists():
-            with open(args.func, 'r') as f:
-                funcs = list(map(lambda x: x.strip(), f.readlines()))
-
-        # Comma sepparated operations
-        else:
-            funcs = str(args.func).split(",")
-
-        # Check operations are valid
-        import imp
-        deppol = imp.load_source('deppol', "deppol") # This is deprecated but there are more important things at hand...
-        for func in funcs:
-            if func not in deppol.poloka_func.keys():
-                print("{} pipeline operation does not exists! Exiting...".format(func))
-                sys.exit()
-
     args.run_folder.joinpath(args.run_name).mkdir(exist_ok=True)
 
     print("Building lightcurve list...")
@@ -246,7 +215,11 @@ if __name__ == '__main__':
     print("Found {} lightcurve folders, totalling {} lightcurves!".format(len(lightcurves), len(list(itertools.chain.from_iterable(list(lightcurves.values()))))))
 
     if args.generate_jobs:
-        generate_jobs(args.wd, args.run_folder, funcs, args.run_name, lightcurves)
+
+        # Check the pipeline description file is valid
+        pipeline.read_pipeline_from_file(args.func)
+
+        generate_jobs(args.wd, args.run_folder, args.ops, args.run_name, lightcurves)
 
     if args.schedule_jobs:
         schedule_jobs(args.run_folder, args.run_name, lightcurves)
