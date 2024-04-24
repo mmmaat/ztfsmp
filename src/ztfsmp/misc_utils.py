@@ -122,7 +122,6 @@ def poly2d_to_file(poly2d, quadrant_set, outdir):
     outdir.mkdir(exist_ok=True)
 
     for i, quadrant in enumerate(quadrant_set):
-        #with open(outdir + os.sep + 'transfoTo' + expid + 'p' + ccd + '.dat', 'w') as f:
         with open(outdir.joinpath("transfoTo{}.dat".format(quadrant)), 'w') as f:
             deg = poly2d.bipol2d.deg
             f.write("GtransfoPoly 1\ndegree %d\n" % deg)

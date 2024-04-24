@@ -4,6 +4,7 @@ import argparse
 import logging
 import pathlib
 import datetime
+import sys
 
 import numpy as np
 import ztfquery
@@ -11,7 +12,7 @@ import joblib
 from ztfimg.science import ScienceQuadrant
 from astropy.io import fits
 
-from utils import filtercodes
+from ztfsmp.ztf_utils import filtercodes
 
 
 def _create_symlink(path, symlink_to):
@@ -21,7 +22,7 @@ def _create_symlink(path, symlink_to):
     path.symlink_to(symlink_to)
 
 
-if __name__ == '__main__':
+def main():
     argparser = argparse.ArgumentParser(description="Prepare directory structure for quadrants.")
     argparser.add_argument('--quadrant-list', type=pathlib.Path, required=True)
     argparser.add_argument('--output', type=pathlib.Path, required=True)
@@ -150,3 +151,7 @@ if __name__ == '__main__':
             joblib.Parallel(n_jobs=args.n_jobs)(joblib.delayed(_create_subfolder)(image_filename) for image_filename in quadrant_list)
 
         _create_folder(filtercode, quadrant_lists[filtercode])
+
+
+if __name__ == '__main__':
+    sys.exit(main())

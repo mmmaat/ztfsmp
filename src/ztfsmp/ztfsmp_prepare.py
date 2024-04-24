@@ -6,42 +6,56 @@ import shutil
 import datetime
 import argparse
 import traceback
-
 import logging
+
 import pandas as pd
+import numpy as np
 from ztfimg.science import ScienceQuadrant
 import ztfquery.io
 import joblib
-import numpy as np
 from astropy.io import fits
-from deppol_utils import ztfnames_from_string, lc_folder_args
-from utils import filtercodes
+
+from ztfsmp.ztf_utils import filtercodes
 
 
-if __name__ == '__main__':
-    argparser = argparse.ArgumentParser(description="Prepare directory structure for deppol.")
+def main():
+    argparser = argparse.ArgumentParser(description="Prepare directory structure for the ZTF SMP pipeline.")
     argparser.add_argument('--ztfname', type=pathlib.Path, required=True)
     argparser.add_argument('--output', type=pathlib.Path, required=True)
     argparser.add_argument('-j', '--n_jobs', type=int, default=1)
     argparser.add_argument('--lc-folder', type=pathlib.Path)
     argparser.add_argument('--no-deads', action='store_true')
+    argparser.add_argument('--missing-path', type=pathlib.Path, help="Text file on which missing exposures will be written. Maybe avoid multiprocessing.")
 
     args = argparser.parse_args()
     args.output = args.output.expanduser().resolve()
-    args.lc_folder = lc_folder_args(args)
+    args.lc_folder = args.lc_folder.expanduser().resolve()
+
+    if args.missing_path:
+        args.missing_path = args.missing_path.expanduser().resolve()
+        missing_file = open(args.missing_path, 'w')
 
     prepare_logger = logging.getLogger("prepare")
     prepare_logger.addHandler(logging.FileHandler(args.output.joinpath("prepare.log")))
     prepare_logger.addHandler(logging.StreamHandler())
     prepare_logger.setLevel(logging.INFO)
     prepare_logger.info(datetime.datetime.today())
-    prepare_logger.info("Preparing deppol folder in {}".format(args.output))
+    prepare_logger.info("Preparing ztfsmp pipeline folder in {}".format(args.output))
 
     prepare_logger.info("Loading ztfnames...")
-    ztfnames = ztfnames_from_string(args.ztfname)
-    if not ztfnames:
-        prepare_logger.error("Found no SN 1a in ztfname file!")
-        exit()
+
+    # Read ztfnames
+    ztfnames = None
+    if args.ztfname is not None:
+        if pathlib.Path(args.ztfname).stem == str(args.ztfname):
+            ztfnames = [str(args.ztfname)]
+        else:
+            args.ztfname = pathlib.Path(args.ztfname).expanduser().resolve()
+            if args.ztfname.exists():
+                with open(args.ztfname, 'r') as f:
+                    ztfnames = [ztfname[:-1] for ztfname in f.readlines()]
+            else:
+                pass
 
     prepare_logger.info("Found {} SNe 1a".format(len(ztfnames)))
 
@@ -86,7 +100,6 @@ if __name__ == '__main__':
                     # Check files exist
                     sciimg_path = pathlib.Path(ztfquery.io.get_file(sciimg_filename, downloadit=False, suffix='sciimg.fits'))
                     mskimg_path = pathlib.Path(ztfquery.io.get_file(sciimg_filename, downloadit=False, suffix='mskimg.fits'))
-                    mskimg_path_gz = pathlib.Path(ztfquery.io.get_file(sciimg_filename, downloadit=False, suffix='mskimg.fits.gz'))
 
                     path = args.output.joinpath("{}/{}/{}".format(ztfname, filtercode, sciimg_filename[:37]))
                     if path.exists():
@@ -95,7 +108,7 @@ if __name__ == '__main__':
                             return
 
                     # Much faster than relying on ScienceQuadrant.from_filename() throwing error
-                    if not sciimg_path.exists() or not (mskimg_path.exists() or mskimg_path_gz.exists()):
+                    if not sciimg_path.exists() or not mskimg_path.exists():
                         raise FileNotFoundError(sciimg_path)
 
 
@@ -128,6 +141,8 @@ if __name__ == '__main__':
 
                 except FileNotFoundError as e:
                     quadrant_logger.error("Fail: {}".format(sciimg_path))
+                    if args.missing_path:
+                        missing_file.write(sciimg_path.name+"\n")
                 except Exception as e:
                     quadrant_logger.exception("Exception error for: {}".format(sciimg_path))
                 else:
@@ -150,3 +165,9 @@ if __name__ == '__main__':
 
         for handler in logger.handlers:
             handler.close()
+
+    missing_file.close()
+
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -314,12 +314,11 @@ def main():
         print("Running {} workers with {} processes each ({} total).".format(args.cluster_worker, args.n_jobs, args.cluster_worker*args.n_jobs))
         client.wait_for_workers(1)
     elif not args.synchronous_compute:
-        localCluster = LocalCluster(n_workers=args.n_jobs, dashboard_address=None, memory_limit=None, processes=True, threads_per_worker=1, local_directory="{}/llacroix/workers".format(os.getenv('TMPDIR')))
+        localCluster = LocalCluster(n_workers=args.n_jobs, memory_limit=None, processes=True, threads_per_worker=1, local_directory="{}/dask-workers".format(os.getenv('TMPDIR', default=".")))
         client = Client(localCluster)
 
         print("Running a local cluster with {} processes.".format(args.n_jobs))
         print("Dask dashboard at: {}".format(client.dashboard_link))
-        # args.local_cluster = localCluster
     else:
         print("Running computations synchronously.")
 
