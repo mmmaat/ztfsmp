@@ -178,7 +178,7 @@ def lightcurves_from_ztfname(wd, ztfname):
     return lightcurves
 
 
-if __name__ == '__main__':
+def main():
     argparser = argparse.ArgumentParser(description="Deploy ztfsmp on a SLURM cluster. For now only support CC IN2P3 cluster.")
     argparser.add_argument('--generate-jobs', action='store_true', help="If set, generate list of jobs")
     argparser.add_argument('--schedule-jobs', action='store_true', help="If set, schedule jobs onto SLURM")
@@ -223,3 +223,7 @@ if __name__ == '__main__':
 
     if args.schedule_jobs:
         schedule_jobs(args.run_folder, args.run_name, lightcurves)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

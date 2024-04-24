@@ -45,6 +45,7 @@ Source = "https://github.com/lacroixle/ztfsmp"
 ztfsmp-pipeline = "ztfsmp.ztfsmp_pipeline:main"
 ztfsmp-prepare = "ztfsmp.ztfsmp_prepare:main"
 ztfsmp-prepare-quadrants = "ztfsmp.ztfsmp_prepare_quadrants:main"
+ztfsmp-prod = "ztfsmp.ztfsmp_prod:main"
 
 [tool.hatch.version]
 path = "src/ztfsmp/__about__.py"
