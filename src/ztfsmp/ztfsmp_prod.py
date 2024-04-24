@@ -22,7 +22,7 @@ def get_current_running_sne():
     scheduled_jobs_raw = out.stdout.decode('utf-8').split("\n")
     return dict([(scheduled_job.split(",")[0][4:], scheduled_job.split(",")[1]) for scheduled_job in scheduled_jobs_raw if scheduled_job[:4] == "smp_"])
 
-def generate_jobs(wd, run_folder, ops, run_name, lightcurves, ntasks, run_arguments):
+def generate_jobs(wd, run_folder, ops, run_name, lightcurves, run_arguments):
     print("Working directory: {}".format(wd))
     print("Run folder: {}".format(run_folder))
     print("Pipeline description: {}".format(ops))
@@ -35,7 +35,7 @@ def generate_jobs(wd, run_folder, ops, run_name, lightcurves, ntasks, run_argume
     batch_folder.mkdir(exist_ok=True)
     log_folder.mkdir(exist_ok=True)
     status_folder.mkdir(exist_ok=True)
-#
+
     for lightcurve_folder in lightcurves.keys():
         for filtercode in lightcurves[lightcurve_folder]:
             print("{}-{}".format(lightcurve_folder, filtercode))
@@ -43,15 +43,15 @@ def generate_jobs(wd, run_folder, ops, run_name, lightcurves, ntasks, run_argume
 echo "running" > {status_path}
 ulimit -n 4096
 
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 ztfsmp-pipeline --ztfname={ztfname} --filtercode={filtercode} -j $SLURM_NTASKS --wd={wd} --func={ops} --run-arguments={run_arguments}
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 ztfsmp-pipeline --ztfname={ztfname} --filtercode={filtercode} -j $SLURM_CPUS_ON_NODE --wd={wd} --func={ops} --run-arguments={run_arguments}
 
 echo "done" > {status_path}
-""".format(ztfname=lightcurve_folder, filtercode=filtercode, wd=wd, ops=ops, status_path=run_folder.joinpath("{}/status/{}-{}".format(run_name, lightcurve_folder, filtercode)), j=ntasks, run_arguments=run_arguments)
+""".format(ztfname=lightcurve_folder, filtercode=filtercode, wd=wd, ops=ops, status_path=run_folder.joinpath("{}/status/{}-{}".format(run_name, lightcurve_folder, filtercode)), run_arguments=run_arguments)
             with open(batch_folder.joinpath("{}-{}.sh".format(lightcurve_folder, filtercode)), 'w') as f:
                 f.write(job)
 
 
-def schedule_jobs(run_folder, run_name, lightcurves):
+def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_reprocessing):
     print("Run folder: {}".format(run_folder))
     batch_folder = run_folder.joinpath("{}/batches".format(run_name))
     log_folder = run_folder.joinpath("{}/logs".format(run_name))
@@ -81,23 +81,23 @@ def schedule_jobs(run_folder, run_name, lightcurves):
         if batch_name in scheduled_jobs.keys():
             continue
 
-        # Check if lightcurve already ran
+        # Check if lightcurve already ran. If provided in lightcurves, force reprocessing
         batch_status_path = status_folder.joinpath(batch_name)
-        if batch_status_path.exists() and not args.ztfname:
-            with open(batch_status_path, 'r') as f:
-                status = f.readline().strip()
-                if status == "done":
-                    continue
+        if batch_status_path.exists() and not force_reprocessing:
+                with open(batch_status_path, 'r') as f:
+                    status = f.readline().strip()
+                    if status == "done":
+                        continue
 
         # If not, submit it through the SLURM batch system
         # Configured to run @ CCIN2P3
-        cmd = ["sbatch", "--ntasks={}".format(args.ntasks),
+        cmd = ["sbatch", "--ntasks={}".format(ntasks),
                "-D", "{}".format(run_folder.joinpath(run_name)),
                "-J", "smp_{}".format(batch_name),
                "-o", log_folder.joinpath("log_{}".format(batch_name)),
                "-A", "ztf",
                "-L", "sps",
-               "--mem={}G".format(4*args.ntasks),
+               "--mem={}G".format(gb_per_task*ntasks),
                "-t", "5-0",
                batch]
 
@@ -145,7 +145,7 @@ def lightcurves_from_ztfname(wd, ztfname):
             # This line only specify a lightcurve_folder
             else:
                 lightcurve_folder = line
-                bands = list(map(lambda x: x.name, list(filter(lambda x: x not in filtercodes, list(wd.joinpath(lightcurve_folder).glob("z*"))))))
+                bands = list(map(lambda x: x.name, list(filter(lambda x: x not in filtercodes, filter(lambda x: x.name in filtercodes, list(wd.joinpath(lightcurve_folder).glob("z*")))))))
                 if len(bands) == 0:
                     continue
 
@@ -191,6 +191,8 @@ def main():
     argparser.add_argument('--purge-status', action='store_true')
     argparser.add_argument('--ztfname', type=pathlib.Path, help="If left empty, process all lightcurves in the working directory. If it corresponds to one lightcurve folder (such as a SN folder), process this one in each available bands. If it corresponds to a lightcurve folder name and a filtercode, separated by \"-\" (e.g. ZTF19aaripqw-zg), only process the specified lightcurve. If set to a valid filename, interpret each line of it in the same way as previously described")
     argparser.add_argument('--run-arguments', type=pathlib.Path)
+    argparser.add_argument('--gb-per-task', type=int, default=4, help="Number of GB to query per tasks.")
+    argparser.add_argument('--force-reprocessing', action='store_true', help="If set, reschedule lightcurves even if they already ran.")
 
     args = argparser.parse_args()
     args.run_folder = args.run_folder.expanduser().resolve()
@@ -230,10 +232,10 @@ def main():
 
         pipeline.read_pipeline_from_file(args.ops)
 
-        generate_jobs(args.wd, args.run_folder, args.ops, args.run_name, lightcurves, args.ntasks, args.run_arguments)
+        generate_jobs(args.wd, args.run_folder, args.ops, args.run_name, lightcurves, args.run_arguments)
 
     if args.schedule_jobs:
-        schedule_jobs(args.run_folder, args.run_name, lightcurves)
+        schedule_jobs(args.run_folder, args.run_name, lightcurves, args.ntasks, args.gb_per_task, args.force_reprocessing)
 
 
 if __name__ == '__main__':
