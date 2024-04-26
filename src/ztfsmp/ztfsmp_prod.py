@@ -16,6 +16,26 @@ from ztfsmp.pipeline import pipeline
 from ztfsmp.pipeline_utils import run_and_log
 from ztfsmp.ztf_utils import filtercodes
 
+def create_script_submit_under_apptainer(batch):
+    """
+    batch : path/name of script SLURM batch
+    name_app: path/name of Apptainer image 
+    """
+    dir_batch = os.path.dirname(batch)
+    name_batch =  os.path.basename(batch)
+    print(dir_batch, name_batch)
+    script_app = f"""#!/bin/sh
+echo "==================="
+echo "Job under apptainer"   
+echo "==================="    
+
+apptainer exec --bind /pbs,/sps/ztf $ZTF_APPTAINER /usr/local/bin/_entrypoint.sh $ZTF_BOOT_APP $ZTF_EXT_ENV {batch}
+"""
+    pn_script = f"{dir_batch}/apptainer_{name_batch}" 
+    with open(pn_script, 'w') as f:
+        f.write(script_app)
+    os.chmod(pn_script, 0o775)
+    return pn_script
 
 def get_current_running_sne():
     out = subprocess.run(["squeue", "-o", "%j,%t", "-p", "htc", "-h"], capture_output=True)
@@ -91,6 +111,7 @@ def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_
 
         # If not, submit it through the SLURM batch system
         # Configured to run @ CCIN2P3
+        app_batch = utils.create_script_submit_under_apptainer(batch)
         cmd = ["sbatch", "--ntasks={}".format(ntasks),
                "-D", "{}".format(run_folder.joinpath(run_name)),
                "-J", "smp_{}".format(batch_name),
@@ -99,7 +120,7 @@ def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_
                "-L", "sps",
                "--mem={}G".format(gb_per_task*ntasks),
                "-t", "5-0",
-               batch]
+               app_batch]
 
         returncode = run_and_log(cmd, logger)
 
