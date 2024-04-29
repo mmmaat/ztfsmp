@@ -9,7 +9,7 @@ import json
 import yaml
 import tarfile
 import shutil
-import yaml
+
 
 
 def run_and_log(cmd, logger=None, return_log=False):

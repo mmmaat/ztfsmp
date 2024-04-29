@@ -10,7 +10,7 @@ import shutil
 import itertools
 import os 
 
-from joblib import Parallel, delayed
+#from joblib import Parallel, delayed
 
 # from ztfsmp.pipeline import pipeline
 from ztfsmp.pipeline_utils import run_and_log
@@ -24,17 +24,17 @@ def get_current_running_sne():
 
 def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_reprocessing):
     print("Run folder: {}".format(run_folder))
-    batch_folder = run_folder.joinpath("batches/apptainer")
-    log_folder = run_folder.joinpath("logs")
-    status_folder = run_folder.joinpath("status")
+    batch_folder = run_folder.joinpath(f"{run_name}/batches/apptainer")
+    log_folder = run_folder.joinpath(f"{run_name}/logs")
+    status_folder = run_folder.joinpath(f"{run_name}/status")
     status_folder.mkdir(exist_ok=True)
 
     logger = logging.getLogger("schedule_jobs")
     logger.addHandler(logging.StreamHandler())
     logger.setLevel(logging.INFO)
     
+    #TODO: check this with Leander
     batches = [batch for batch in batch_folder.iterdir()]
-
     # batches = list(itertools.chain.from_iterable([["{}-{}.sh".format(lightcurve_folder, band) for band in lightcurves[lightcurve_folder]] for lightcurve_folder in lightcurves.keys()]))
     # batches = list(map(lambda x: run_folder.joinpath("{}/{}/batches/{}".format(run_folder, run_name, x)), batches))
 
@@ -48,6 +48,8 @@ def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_
 
     # Submit lightcurve jobs
     for batch in batches:
+        if batch.name.find('.sh') < 0:
+            continue
         batch_name = batch.name.split(".")[0]
 
         # If lightcurve is already running, do not submit it again
