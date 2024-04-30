@@ -190,7 +190,7 @@ def photometry_fit(lightcurve, logger, args, op_args):
 
     return True
 
-register_op('photometry_fit', reduce_op=photometry_fit, parameters=[{'name': 'max_star_chi2', 'type': float, 'default': 1., 'desc': "Maximum chi2/star"},
+register_op('photometry_fit', reduce_op=photometry_fit, parameters=[{'name': 'max_star_chi2', 'type': float, 'default': 3., 'desc': "Maximum chi2/star"},
                                                                     {'name': 'use_aper', 'type': bool, 'default': False, 'desc': "Use aperture catalogs as input"}])
 
 
