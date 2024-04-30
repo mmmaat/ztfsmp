@@ -22,7 +22,7 @@ def get_current_running_sne():
     return dict([(scheduled_job.split(",")[0][4:], scheduled_job.split(",")[1]) for scheduled_job in scheduled_jobs_raw if scheduled_job[:4] == "smp_"])
 
 
-def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_reprocessing):
+def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_reprocessing,ltime):
     print("Run folder: {}".format(run_folder))
     batch_folder = run_folder.joinpath(f"{run_name}/batches/apptainer")
     log_folder = run_folder.joinpath(f"{run_name}/logs")
@@ -73,7 +73,7 @@ def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_
                "-A", "ztf",
                "-L", "sps",
                "--mem={}G".format(gb_per_task*ntasks),
-               "-t", "5-0",
+               "-t", ltime,
                batch]
 
         returncode = run_and_log(cmd, logger)
@@ -164,7 +164,7 @@ def main():
     argparser.add_argument('--ztfname', type=pathlib.Path, help="If left empty, process all lightcurves in the working directory. If it corresponds to one lightcurve folder (such as a SN folder), process this one in each available bands. If it corresponds to a lightcurve folder name and a filtercode, separated by \"-\" (e.g. ZTF19aaripqw-zg), only process the specified lightcurve. If set to a valid filename, interpret each line of it in the same way as previously described")
     argparser.add_argument('--gb-per-task', type=int, default=4, help="Number of GB to query per tasks.")
     argparser.add_argument('--force-reprocessing', action='store_true', help="If set, reschedule lightcurves even if they already ran.")
-
+    argparser.add_argument('-t','--time', type=str, default='5-0',help="sets a limit on the total run time of the job allocation. Acceptable formats: 'minutes', 'minutes:seconds', 'hours:minutes:seconds', 'days-hours', 'days-hours:minutes' and 'days-hours:minutes:seconds'")
     args = argparser.parse_args()
     args.run_folder = args.run_folder.expanduser().resolve()
 
@@ -190,7 +190,7 @@ def main():
     lightcurves = lightcurves_from_ztfname(args.wd, args.ztfname)
     print("Found {} lightcurve folders, totalling {} lightcurves!".format(len(lightcurves), len(list(itertools.chain.from_iterable(list(lightcurves.values()))))))
 
-    schedule_jobs(args.run_folder, args.run_name, lightcurves, args.ntasks, args.gb_per_task, args.force_reprocessing)
+    schedule_jobs(args.run_folder, args.run_name, lightcurves, args.ntasks, args.gb_per_task, args.force_reprocessing,args.time)
         
 if __name__ == '__main__':
     sys.exit(main())
