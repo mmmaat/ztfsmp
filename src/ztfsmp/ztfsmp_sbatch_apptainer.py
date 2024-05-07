@@ -10,105 +10,33 @@ import shutil
 import itertools
 import os 
 
-from joblib import Parallel, delayed
+#from joblib import Parallel, delayed
 
-from ztfsmp.pipeline import pipeline
+# from ztfsmp.pipeline import pipeline
 from ztfsmp.pipeline_utils import run_and_log
 from ztfsmp.ztf_utils import filtercodes
-
-def create_script_submit_under_apptainer(batch):
-    """
-    batch : path/name of script SLURM batch
-    """
-    dir_batch = os.path.dirname(batch)
-    name_batch =  os.path.basename(batch)
-    print(dir_batch, name_batch)    
-    if os.getenv('ZTF_EXT_ENV') is not None:
-        script_app = f"""#!/bin/sh
-echo "==================="
-echo "Job under apptainer"   
-echo "==================="    
-
-apptainer exec --bind /sps/ztf,/scratch $ZTF_APPTAINER /usr/local/bin/_entrypoint.sh $ZTF_BOOT_APP $ZTF_EXT_ENV {batch}
-"""
-    else:
-        app_name = os.getenv('APPTAINER_CONTAINER')
-        script_app = f"""#!/bin/sh
-echo "==================="
-echo "Job under apptainer"   
-echo "==================="    
-
-apptainer exec --bind /sps/ztf,/scratch {app_name} /usr/local/bin/_entrypoint.sh {batch}
-"""        
-    pn_script = f"{dir_batch}/apptainer/app_{name_batch}" 
-    with open(pn_script, 'w') as f:
-        f.write(script_app)
-    os.chmod(pn_script, 0o775)
-    return pn_script
 
 def get_current_running_sne():
     out = subprocess.run(["squeue", "-o", "%j,%t", "-p", "htc", "-h"], capture_output=True)
     scheduled_jobs_raw = out.stdout.decode('utf-8').split("\n")
     return dict([(scheduled_job.split(",")[0][4:], scheduled_job.split(",")[1]) for scheduled_job in scheduled_jobs_raw if scheduled_job[:4] == "smp_"])
 
-def generate_jobs(wd, run_folder, ops, run_name, lightcurves, run_arguments):
-    script_name = 'ztfsmp-pipeline'
-    f_apptainer = os.getenv('APPTAINER_NAME') is not None
-    
-    
-    print("Working directory: {}".format(wd))
+
+def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_reprocessing,ltime):
     print("Run folder: {}".format(run_folder))
-    print("Pipeline description: {}".format(ops))
-
-    print("Saving jobs under {}".format(run_folder))
-    batch_folder = run_folder.joinpath("{}/batches".format(run_name))
-    log_folder = run_folder.joinpath("{}/logs".format(run_name))
-    status_folder = run_folder.joinpath("{}/status".format(run_name))
-    batch_folder.mkdir(exist_ok=True)
-    
-    if f_apptainer:
-        # We are in apptainer env, need to create specific slurm batches for apptainer
-        batch_folder.joinpath("apptainer").mkdir(exist_ok=True)
-        # Manage magic rename of ztfsmp_pipeline.py by pip install
-        if shutil.which('ztfsmp_pipeline.py') is not None:
-            # a ztfsmp version is defined as an external package of apptainer env
-            script_name = 'ztfsmp_pipeline.py'
-    log_folder.mkdir(exist_ok=True)
-    status_folder.mkdir(exist_ok=True)
-
-    for lightcurve_folder in lightcurves.keys():
-        for filtercode in lightcurves[lightcurve_folder]:
-            print("{}-{}".format(lightcurve_folder, filtercode))
-            job = """#!/bin/sh
-echo "running" > {status_path}
-ulimit -n 4096
-
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 {pipeline} --ztfname={ztfname} --filtercode={filtercode} -j $SLURM_CPUS_ON_NODE --wd={wd} --func={ops} --run-arguments={run_arguments}
-
-echo "done" > {status_path}
-""".format(pipeline=script_name, ztfname=lightcurve_folder, filtercode=filtercode, wd=wd, ops=ops, status_path=run_folder.joinpath("{}/status/{}-{}".format(run_name, lightcurve_folder, filtercode)), run_arguments=run_arguments)            
-            pn_script = batch_folder.joinpath("{}-{}.sh".format(lightcurve_folder, filtercode)) 
-            with open(pn_script, 'w') as f:
-                f.write(job)
-            os.chmod(pn_script, 0o775)
-            #
-            if f_apptainer:
-                create_script_submit_under_apptainer(pn_script)
-
-
-def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_reprocessing):
-    print("Run folder: {}".format(run_folder))
-    batch_folder = run_folder.joinpath("{}/batches".format(run_name))
-    log_folder = run_folder.joinpath("{}/logs".format(run_name))
-    status_folder = run_folder.joinpath("{}/status".format(run_name))
+    batch_folder = run_folder.joinpath(f"{run_name}/batches/apptainer")
+    log_folder = run_folder.joinpath(f"{run_name}/logs")
+    status_folder = run_folder.joinpath(f"{run_name}/status")
     status_folder.mkdir(exist_ok=True)
 
     logger = logging.getLogger("schedule_jobs")
     logger.addHandler(logging.StreamHandler())
     logger.setLevel(logging.INFO)
-
-    batches = list(itertools.chain.from_iterable([["{}-{}.sh".format(lightcurve_folder, band) for band in lightcurves[lightcurve_folder]] for lightcurve_folder in lightcurves.keys()]))
-    batches = list(map(lambda x: run_folder.joinpath("{}/{}/batches/{}".format(run_folder, run_name, x)), batches))
+    
+    #TODO: check this with Leander
+    batches = [batch for batch in batch_folder.iterdir()]
+    # batches = list(itertools.chain.from_iterable([["{}-{}.sh".format(lightcurve_folder, band) for band in lightcurves[lightcurve_folder]] for lightcurve_folder in lightcurves.keys()]))
+    # batches = list(map(lambda x: run_folder.joinpath("{}/{}/batches/{}".format(run_folder, run_name, x)), batches))
 
     # Write batch list in run folder
     with open(run_folder.joinpath("{}/lightcurves.txt".format(run_name)), 'w') as f:
@@ -120,6 +48,8 @@ def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_
 
     # Submit lightcurve jobs
     for batch in batches:
+        if batch.name.find('.sh') < 0:
+            continue
         batch_name = batch.name.split(".")[0]
 
         # If lightcurve is already running, do not submit it again
@@ -143,7 +73,7 @@ def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_
                "-A", "ztf",
                "-L", "sps",
                "--mem={}G".format(gb_per_task*ntasks),
-               "-t", "5-0",
+               "-t", ltime,
                batch]
 
         returncode = run_and_log(cmd, logger)
@@ -225,20 +155,16 @@ def lightcurves_from_ztfname(wd, ztfname):
 
 
 def main():
-    argparser = argparse.ArgumentParser(description="Deploy ztfsmp on a SLURM cluster. For now only support CC IN2P3 cluster.")
-    argparser.add_argument('--generate-jobs', action='store_true', help="If set, generate list of jobs")
-    argparser.add_argument('--schedule-jobs', action='store_true', help="If set, schedule jobs onto SLURM")
+    argparser = argparse.ArgumentParser(description="Deploy ztfsmp under Apptainer on a SLURM cluster . For now only support CC IN2P3 cluster.")
     argparser.add_argument('--wd', type=pathlib.Path, required=False, help="Working directory.")
     argparser.add_argument('--run-folder', type=pathlib.Path, required=True)
-    argparser.add_argument('--ops', type=pathlib.Path, help="Pipeline description to run. See ztfsmp-pipeline for valid operations.")
     argparser.add_argument('--run-name', type=str, required=True)
     argparser.add_argument('--ntasks', default=1, type=int, help="Number of worker to use when submitting jobs")
     argparser.add_argument('--purge-status', action='store_true')
     argparser.add_argument('--ztfname', type=pathlib.Path, help="If left empty, process all lightcurves in the working directory. If it corresponds to one lightcurve folder (such as a SN folder), process this one in each available bands. If it corresponds to a lightcurve folder name and a filtercode, separated by \"-\" (e.g. ZTF19aaripqw-zg), only process the specified lightcurve. If set to a valid filename, interpret each line of it in the same way as previously described")
-    argparser.add_argument('--run-arguments', type=pathlib.Path)
     argparser.add_argument('--gb-per-task', type=int, default=4, help="Number of GB to query per tasks.")
     argparser.add_argument('--force-reprocessing', action='store_true', help="If set, reschedule lightcurves even if they already ran.")
-
+    argparser.add_argument('-t','--time', type=str, default='5-0',help="sets a limit on the total run time of the job allocation. Acceptable formats: 'minutes', 'minutes:seconds', 'hours:minutes:seconds', 'days-hours', 'days-hours:minutes' and 'days-hours:minutes:seconds'")
     args = argparser.parse_args()
     args.run_folder = args.run_folder.expanduser().resolve()
 
@@ -264,24 +190,7 @@ def main():
     lightcurves = lightcurves_from_ztfname(args.wd, args.ztfname)
     print("Found {} lightcurve folders, totalling {} lightcurves!".format(len(lightcurves), len(list(itertools.chain.from_iterable(list(lightcurves.values()))))))
 
-    if args.generate_jobs:
-        args.run_arguments = args.run_arguments.expanduser().resolve()
-        args.ops = args.ops.expanduser().resolve()
-
-        # Check the pipeline description file is valid
-        import ztfsmp.ztfsmp_pipeline as ztfsmp_pipeline
-        search_paths = [pathlib.Path(ztfsmp_pipeline.__file__).parent]
-        for search_path in search_paths:
-            for ops_module in list(search_path.glob("ops_*.py")):
-                globals()[ops_module] = importlib.import_module("ztfsmp." + str(ops_module.stem))
-
-        pipeline.read_pipeline_from_file(args.ops)
-
-        generate_jobs(args.wd, args.run_folder, args.ops, args.run_name, lightcurves, args.run_arguments)
-
-    if args.schedule_jobs:
-        schedule_jobs(args.run_folder, args.run_name, lightcurves, args.ntasks, args.gb_per_task, args.force_reprocessing)
-
-
+    schedule_jobs(args.run_folder, args.run_name, lightcurves, args.ntasks, args.gb_per_task, args.force_reprocessing,args.time)
+        
 if __name__ == '__main__':
     sys.exit(main())
