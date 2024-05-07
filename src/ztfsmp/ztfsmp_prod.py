@@ -22,14 +22,24 @@ def create_script_submit_under_apptainer(batch):
     """
     dir_batch = os.path.dirname(batch)
     name_batch =  os.path.basename(batch)
-    print(dir_batch, name_batch)
-    script_app = f"""#!/bin/sh
+    print(dir_batch, name_batch)    
+    if os.getenv('ZTF_EXT_ENV') is not None:
+        script_app = f"""#!/bin/sh
 echo "==================="
 echo "Job under apptainer"   
 echo "==================="    
 
 apptainer exec --bind /sps/ztf,/scratch $ZTF_APPTAINER /usr/local/bin/_entrypoint.sh $ZTF_BOOT_APP $ZTF_EXT_ENV {batch}
 """
+    else:
+        app_name = os.getenv('APPTAINER_CONTAINER')
+        script_app = f"""#!/bin/sh
+echo "==================="
+echo "Job under apptainer"   
+echo "==================="    
+
+apptainer exec --bind /sps/ztf,/scratch {app_name} /usr/local/bin/_entrypoint.sh {batch}
+"""        
     pn_script = f"{dir_batch}/apptainer/app_{name_batch}" 
     with open(pn_script, 'w') as f:
         f.write(script_app)
@@ -44,6 +54,7 @@ def get_current_running_sne():
 def generate_jobs(wd, run_folder, ops, run_name, lightcurves, run_arguments):
     script_name = 'ztfsmp-pipeline'
     f_apptainer = os.getenv('APPTAINER_NAME') is not None
+    
     
     print("Working directory: {}".format(wd))
     print("Run folder: {}".format(run_folder))

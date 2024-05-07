@@ -155,7 +155,7 @@ def lightcurves_from_ztfname(wd, ztfname):
 
 
 def main():
-    argparser = argparse.ArgumentParser(description="Deploy ztfsmp on a SLURM cluster. For now only support CC IN2P3 cluster.")
+    argparser = argparse.ArgumentParser(description="Deploy ztfsmp under Apptainer on a SLURM cluster . For now only support CC IN2P3 cluster.")
     argparser.add_argument('--wd', type=pathlib.Path, required=False, help="Working directory.")
     argparser.add_argument('--run-folder', type=pathlib.Path, required=True)
     argparser.add_argument('--run-name', type=str, required=True)
