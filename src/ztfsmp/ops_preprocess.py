@@ -7,7 +7,7 @@ from ztfsmp.pipeline import register_op
 def make_catalog(exposure, logger, args, op_args):
     logger.info("Retrieving science exposure...")
     try:
-        image_path = exposure.retrieve_exposure(ztfin2p3_path=args.ztfin2p3_path)
+        image_path = exposure.retrieve_exposure(ztfin2p3_detrend=op_args['ztfin2p3_detrend'])
     except FileNotFoundError as e:
         print(e)
         logger.error(e)
@@ -24,7 +24,7 @@ def make_catalog(exposure, logger, args, op_args):
 
 
 make_catalog_rm = ["low.fits.gz", "miniback.fits", "segmentation.cv.fits", "segmentation.fits"]
-make_catalog_parameters = []
+make_catalog_parameters = [{'name': 'ztfin2p3_detrend', 'type': bool, 'default': False, 'desc': ""}]
 
 register_op('make_catalog', map_op=make_catalog, rm_list=make_catalog_rm, parameters=make_catalog_parameters)
 
