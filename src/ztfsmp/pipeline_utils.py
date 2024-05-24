@@ -9,9 +9,7 @@ import json
 import yaml
 import tarfile
 import shutil
-import yaml
 
-import pandas as pd
 
 
 def run_and_log(cmd, logger=None, return_log=False):

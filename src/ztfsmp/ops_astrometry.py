@@ -14,7 +14,7 @@ from ztfsmp.ztf_utils import quadrant_width_px, quadrant_height_px
 from ztfsmp.ext_cat_utils import gaiarefmjd
 
 
-def wcs_residuals(lightcurve, logger, args):
+def wcs_residuals(lightcurve, logger, args, op_args):
     """
 
     """
@@ -23,6 +23,8 @@ def wcs_residuals(lightcurve, logger, args):
     import matplotlib
     import matplotlib.pyplot as plt
     from saunerie.plottools import binplot
+
+    from ztfsmp.ztf_utils import ztf_quadrant_name_explode
 
     matplotlib.use('Agg')
 
@@ -44,8 +46,13 @@ def wcs_residuals(lightcurve, logger, args):
                              'name': 'exposure'},
                             axis='columns', inplace=True)
     matched_stars_df = matched_stars_df[['exposure', 'gaiaid', 'ra', 'dec', 'x', 'y', 'gaia_x', 'gaia_y', 'sx', 'sy', 'pmra', 'pmdec', 'mag', 'bpmag', 'rpmag']]
-    matched_stars_df.dropna(inplace=True)
+    matched_stars_df = matched_stars_df.assign(rcid=[ztf_quadrant_name_explode(name)[5] for name in matched_stars_df['exposure']])
+
+    matched_stars_df = matched_stars_df.dropna()
     logger.info("N={}".format(len(matched_stars_df)))
+
+    res_x = (matched_stars_df['x']-matched_stars_df['gaia_x']).to_numpy()
+    res_y = (matched_stars_df['y']-matched_stars_df['gaia_y']).to_numpy()
 
     save_folder_path= lightcurve.path.joinpath("wcs_residuals_plots")
     save_folder_path.mkdir(exist_ok=True)
@@ -68,6 +75,20 @@ def wcs_residuals(lightcurve, logger, args):
     plt.savefig(save_folder_path.joinpath("wcs_res_dist.png"), dpi=300.)
     plt.close()
     ################################################################################
+
+    ################################################################################
+    # Residuals on the plane
+    for rcid in list(set(matched_stars_df['rcid'].tolist())):
+        plt.subplots(figsize=(8., 8.))
+        mask = matched_stars_df['rcid']==rcid
+        plt.plot(res_x[mask], res_y[mask], ',')
+        plt.grid()
+        plt.xlim(-1., 1.)
+        plt.ylim(-1., 1.)
+        plt.title("rcid={}".format(rcid))
+        plt.savefig(save_folder_path.joinpath("wcs_res_plane_rcid_{}.png".format(rcid)), dpi=200.)
+        plt.close()
+
 
     ################################################################################
     # Residuals/magnitude
