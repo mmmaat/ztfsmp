@@ -119,10 +119,10 @@ class Exposure(_Exposure):
         return WCS(self.exposure_header)
 
     def retrieve_exposure(self, ztfin2p3_detrend=False, force_rewrite=True):
-        if ztfin2p3_detrend and self.year==2020:
+        if ztfin2p3_detrend:
             from ztfin2p3.science import build_science_image
             raw_path = str(pathlib.Path(get_file(self.raw_name, downloadit=False)))
-            paths = build_science_image(raw_path, store=True, overwrite=False, corr_pocket=True)
+            paths = build_science_image(raw_path, store=True, overwrite=True, corr_pocket=True)
             image_path = pathlib.Path(paths[self.qid-1])
         else:
             image_path = pathlib.Path(get_file(self.name + "_sciimg.fits", downloadit=False))
