@@ -29,7 +29,7 @@ echo "==================="
 echo "Job under apptainer"   
 echo "==================="    
 
-apptainer exec --bind /sps/ztf,/scratch $ZTF_APPTAINER /usr/local/bin/_entrypoint.sh $ZTF_BOOT_APP $ZTF_EXT_ENV {batch}
+apptainer exec --bind /pbs,/sps/ztf,/scratch $ZTF_APPTAINER /usr/local/bin/_entrypoint.sh $ZTF_BOOT_APP $ZTF_EXT_ENV {batch}
 """
     else:
         app_name = os.getenv('APPTAINER_CONTAINER')
@@ -38,7 +38,7 @@ echo "==================="
 echo "Job under apptainer"   
 echo "==================="    
 
-apptainer exec --bind /sps/ztf,/scratch {app_name} /usr/local/bin/_entrypoint.sh {batch}
+apptainer exec --bind /pbs,/sps/ztf,/scratch {app_name} /usr/local/bin/_entrypoint.sh {batch}
 """        
     pn_script = f"{dir_batch}/apptainer/app_{name_batch}" 
     with open(pn_script, 'w') as f:
