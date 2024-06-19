@@ -45,8 +45,10 @@ def wcs_residuals(lightcurve, logger, args, op_args):
                              'gaia_Gmag': 'mag',
                              'name': 'exposure'},
                             axis='columns', inplace=True)
+
     matched_stars_df = matched_stars_df[['exposure', 'gaiaid', 'ra', 'dec', 'x', 'y', 'gaia_x', 'gaia_y', 'sx', 'sy', 'pmra', 'pmdec', 'mag', 'bpmag', 'rpmag']]
-    matched_stars_df = matched_stars_df.assign(rcid=[ztf_quadrant_name_explode(name)[5] for name in matched_stars_df['exposure']])
+    matched_stars_df = matched_stars_df.assign(ccdid=[ztf_quadrant_name_explode(name)[5] for name in matched_stars_df['exposure']])
+    matched_stars_df = matched_stars_df.loc[matched_stars_df['mag']>18.]
 
     matched_stars_df = matched_stars_df.dropna()
     logger.info("N={}".format(len(matched_stars_df)))
@@ -78,15 +80,15 @@ def wcs_residuals(lightcurve, logger, args, op_args):
 
     ################################################################################
     # Residuals on the plane
-    for rcid in list(set(matched_stars_df['rcid'].tolist())):
+    for ccdid in list(set(matched_stars_df['ccdid'].tolist())):
         plt.subplots(figsize=(8., 8.))
-        mask = matched_stars_df['rcid']==rcid
+        mask = matched_stars_df['ccdid']==ccdid
         plt.plot(res_x[mask], res_y[mask], ',')
         plt.grid()
         plt.xlim(-1., 1.)
         plt.ylim(-1., 1.)
-        plt.title("rcid={}".format(rcid))
-        plt.savefig(save_folder_path.joinpath("wcs_res_plane_rcid_{}.png".format(rcid)), dpi=200.)
+        plt.title("ccdid={}".format(ccdid))
+        plt.savefig(save_folder_path.joinpath("wcs_res_plane_ccdid_{}.png".format(ccdid)), dpi=200.)
         plt.close()
 
 

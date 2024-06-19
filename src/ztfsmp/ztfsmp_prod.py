@@ -49,7 +49,7 @@ apptainer exec --bind /sps/ztf,/scratch {app_name} /usr/local/bin/_entrypoint.sh
 def get_current_running_sne():
     out = subprocess.run(["squeue", "-o", "%j,%t", "-p", "htc", "-h"], capture_output=True)
     scheduled_jobs_raw = out.stdout.decode('utf-8').split("\n")
-    return dict([(scheduled_job.split(",")[0][4:], scheduled_job.split(",")[1]) for scheduled_job in scheduled_jobs_raw if scheduled_job[:4] == "smp_"])
+    return dict([(scheduled_job.split(",")[0].split("_")[-1], scheduled_job.split(",")[1]) for scheduled_job in scheduled_jobs_raw if scheduled_job[:7] == "ztfsmp_"])
 
 def generate_jobs(wd, run_folder, ops, run_name, lightcurves, run_arguments):
     script_name = 'ztfsmp-pipeline'
@@ -138,7 +138,7 @@ def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_
         # Configured to run @ CCIN2P3
         cmd = ["sbatch", "--ntasks={}".format(ntasks),
                "-D", "{}".format(run_folder.joinpath(run_name)),
-               "-J", "smp_{}".format(batch_name),
+               "-J", "ztfsmp_{}_{}".format(run_name, batch_name),
                "-o", log_folder.joinpath("log_{}".format(batch_name)),
                "-A", "ztf",
                "-L", "sps",

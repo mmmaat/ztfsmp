@@ -151,6 +151,11 @@ class Exposure(_Exposure):
         else:
             raise FileNotFoundError("Could not find calibrated.fits or calibrated.header for exposure {}!".format(self.name))
 
+    @property
+    def elixir_header(self):
+        with fits.open(self.path.joinpath("elixir.fits")) as hdul:
+            return hdul[0].header
+
     def get_catalog(self, cat_name, key=None):
         if not isinstance(cat_name, pathlib.Path):
             cat_name = pathlib.Path(cat_name)
