@@ -42,6 +42,10 @@ class _Exposure:
         return self.__name
 
     @property
+    def raw_name(self):
+        return "_".join(self.__name.split("_")[:-1])
+
+    @property
     def year(self):
         return self.__year
 
@@ -114,9 +118,12 @@ class Exposure(_Exposure):
     def wcs(self):
         return WCS(self.exposure_header)
 
-    def retrieve_exposure(self, ztfin2p3_path=None, force_rewrite=True):
-        if ztfin2p3_path:
-            image_path = ztfin2p3_path.joinpath("sci/{}/{}/{}/{}".format(self.name[9:13], self.name[13:17], self.name[17:23], self.name + "_sciimg.fits"))
+    def retrieve_exposure(self, ztfin2p3_detrend=False, force_rewrite=True):
+        if ztfin2p3_detrend:
+            from ztfin2p3.science import build_science_image
+            raw_path = str(pathlib.Path(get_file(self.raw_name, downloadit=False)))
+            paths = build_science_image(raw_path, store=True, overwrite=True, corr_pocket=True)
+            image_path = pathlib.Path(paths[self.qid-1])
         else:
             image_path = pathlib.Path(get_file(self.name + "_sciimg.fits", downloadit=False))
 
@@ -143,6 +150,11 @@ class Exposure(_Exposure):
                 return hdul[0].header
         else:
             raise FileNotFoundError("Could not find calibrated.fits or calibrated.header for exposure {}!".format(self.name))
+
+    @property
+    def elixir_header(self):
+        with fits.open(self.path.joinpath("elixir.fits")) as hdul:
+            return hdul[0].header
 
     def get_catalog(self, cat_name, key=None):
         if not isinstance(cat_name, pathlib.Path):
