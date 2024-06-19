@@ -3,12 +3,16 @@
 from ztfsmp.pipeline import register_op
 
 def psfstudy_map(exposure, logger, args, op_args):
+    if not exposure.path.joinpath("match_catalogs.success").exists():
+        return False
+
     import pickle
 
     import numpy as np
     import matplotlib
     import matplotlib.pyplot as plt
     from numpy.polynomial.polynomial import Polynomial
+
 
     matplotlib.use('Agg')
 
