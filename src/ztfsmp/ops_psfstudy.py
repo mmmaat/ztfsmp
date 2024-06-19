@@ -26,7 +26,7 @@ def psfstudy_map(exposure, logger, args, op_args):
     gaia_df = gaia_df.loc[mask]
 
     # Compute magnitude differences between PSF and aperture photometry
-    delta_mag = -2.5*np.log10(psf_df['flux']) + 2.5*np.log10(aper_df[aper_str])
+    delta_mag = 2.5*np.log10(psf_df['flux']) - 2.5*np.log10(aper_df[aper_str])
     delta_emag = np.sqrt((-1.08*psf_df['eflux']/psf_df['flux'])**2+(-1.08*aper_df[eaper_str]/aper_df[aper_str])**2)
 
     # Compute polynomials
@@ -44,15 +44,15 @@ def psfstudy_map(exposure, logger, args, op_args):
     G_linspace = np.linspace(G_min, G_max)
 
     plt.subplots(figsize=(10., 4.))
-    plt.title(exposure.name)
+    plt.title("{} - {}".format(exposure.name, aper_str))
     plt.errorbar(gaia_df['Gmag'], delta_mag, yerr=delta_emag, ls='none', marker='.', markersize=5., lw=0.5)
-    plt.plot([G_min, G_max], [poly0(G_min), poly0(G_max)], label="Constant - $\chi_\nu^2={:.2f}$".format(poly0_chi2))
-    plt.plot([G_min, G_max], [poly1(G_min), poly1(G_max)], label="Linear - $\chi_\nu^2={:.2f}$".format(poly1_chi2))
-    plt.plot(G_linspace, poly2(G_linspace), label="Quadratic - $\chi_\nu^2={:.2f}$".format(poly2_chi2))
+    plt.plot([G_min, G_max], [poly0(G_min), poly0(G_max)], label="Constant - $\\chi_\\nu^2={:.2f}$".format(poly0_chi2))
+    plt.plot([G_min, G_max], [poly1(G_min), poly1(G_max)], label="Linear - $\\chi_\\nu^2={:.2f}$".format(poly1_chi2))
+    plt.plot(G_linspace, poly2(G_linspace), label="Quadratic - $\\chi_\\nu^2={:.2f}$".format(poly2_chi2))
     plt.legend()
     plt.ylim(-1., 1.)
     plt.grid()
-    plt.savefig(exposure.path.joinpath("psfstudy_{}.png".format(exposure.name)), dpi=200.)
+    plt.savefig(exposure.path.joinpath("psfstudy_{}_{}.png".format(aper_str, exposure.name)), dpi=200.)
     plt.close()
 
     # Save everything on disk
@@ -88,7 +88,7 @@ def psfstudy_map(exposure, logger, args, op_args):
     result['seeing'] = seeing
     result['airmass'] = airmass
 
-    with open(exposure.path.joinpath("psfstudy.pickle"), 'wb') as f:
+    with open(exposure.path.joinpath("psfstudy_{}.pickle".format(aper_str)), 'wb') as f:
         pickle.dump(result, f)
 
     return True
@@ -99,7 +99,7 @@ def psfstudy_reduce(lightcurve, logger, args, op_args):
     import pandas as pd
     import matplotlib.pyplot as plt
 
-    result_paths = lightcurve.path.glob("ztf_*/psfstudy.pickle")
+    result_paths = lightcurve.path.glob("ztf_*/psfstudy_{}.pickle".format(op_args['aperflux']))
     results = []
     for result_path in result_paths:
         with open(result_path, 'rb') as f:
@@ -107,9 +107,9 @@ def psfstudy_reduce(lightcurve, logger, args, op_args):
 
     df = pd.DataFrame(results).set_index('name', drop=True)
 
-    df.to_parquet(lightcurve.path.joinpath("psfstudy.parquet"))
+    df.to_parquet(lightcurve.path.joinpath("psfstudy_{}.parquet".format(op_args['aperflux'])))
 
     return True
 
 
-register_op('psfstudy', map_op=psfstudy_map, reduce_op=psfstudy_reduce, parameters={'name': 'aperflux', 'type': 'str', 'default': 'apfl7', 'desc':""})
+register_op('psfstudy', map_op=psfstudy_map, reduce_op=psfstudy_reduce, parameters={'name': 'aperflux', 'type': str, 'default': 'apfl7', 'desc':""})
