@@ -91,7 +91,7 @@ def BiPol2D_fit(x, y, degree, space_indices=None, simultaneous_fit=True):
     return model
 
 
-def RobustPolynomialFit(x, y, degree, dy=None, just_chi2=False):
+def RobustPolynomialFit(x, y, degree, dy=None, just_chi2=False, verbose=True):
     assert len(x) == len(y)
     model = None
 
@@ -105,9 +105,9 @@ def RobustPolynomialFit(x, y, degree, dy=None, just_chi2=False):
             model = model + deg_model
 
     if dy is not None:
-        solver = RobustLinearSolver(model, y, weights=1./dy)
+        solver = RobustLinearSolver(model, y, weights=1./dy, verbose=int(verbose))
     else:
-        solver = RobustLinearSolver(model, dp.y)
+        solver = RobustLinearSolver(model, dp.y, verbose=int(verbose))
 
     solver.model.params.free = solver.robust_solution()
     res = solver.get_res(y)

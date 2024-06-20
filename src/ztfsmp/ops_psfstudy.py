@@ -42,6 +42,7 @@ def psfstudy_map(exposure, logger, args, op_args):
     aper_df = aper_df.loc[mask]
     gaia_df = gaia_df.loc[mask]
 
+    # Compute relevant quantities, magnitudes and difference
     psf_df = psf_df.assign(mag=-2.5*np.log10(psf_df['flux']), emag=1.08*psf_df['eflux']/psf_df['flux'])
     aper_df = psf_df.assign(mag=-2.5*np.log10(aper_df[aper_str]), emag=1.08*aper_df[eaper_str]/aper_df[aper_str])
     delta_mag = aper_df['mag'] - psf_df['mag']
@@ -52,21 +53,24 @@ def psfstudy_map(exposure, logger, args, op_args):
     bins = np.arange(G_min, G_max, 1.)
 
     plt.subplots(figsize=(10., 4.))
+
+    # Bin everything
     G_binned, delta_mag_binned, delta_emag_binned = binplot(gaia_df['Gmag'].to_numpy(), delta_mag.to_numpy(), robust=True, data=False, scale=True, weights=1./delta_emag.to_numpy(), bins=bins, color='red', lw=2., zorder=15)
 
+    G_binned = np.array(G_binned)
     delta_mag_binned = np.array(delta_mag_binned)
-    # poly0, poly0_chi2 = RobustPolynomialFit(gaia_df['Gmag'].to_numpy(), delta_mag.to_numpy(), 0, dy=delta_emag.to_numpy())
-    # poly1, poly1_chi2 = RobustPolynomialFit(gaia_df['Gmag'].to_numpy(), delta_mag.to_numpy(), 1, dy=delta_emag.to_numpy())
-    # poly2, poly2_chi2 = RobustPolynomialFit(gaia_df['Gmag'].to_numpy(), delta_mag.to_numpy(), 2, dy=delta_emag.to_numpy())
+    delta_emag_binned = np.array(delta_emag_binned)
 
+    # Remove empty bins
     m = delta_emag_binned > 0.
     G_binned = G_binned[m]
     delta_mag_binned = delta_mag_binned[m]
     delta_emag_binned = delta_emag_binned[m]
 
-    poly0, poly0_chi2 = RobustPolynomialFit(G_binned, delta_mag_binned, 0, dy=delta_emag_binned)
-    poly1, poly1_chi2 = RobustPolynomialFit(G_binned, delta_mag_binned, 1, dy=delta_emag_binned)
-    poly2, poly2_chi2 = RobustPolynomialFit(G_binned, delta_mag_binned, 2, dy=delta_emag_binned)
+    # Fits
+    poly0, poly0_chi2 = RobustPolynomialFit(G_binned, delta_mag_binned, 0, dy=delta_emag_binned, verbose=False)
+    poly1, poly1_chi2 = RobustPolynomialFit(G_binned, delta_mag_binned, 1, dy=delta_emag_binned, verbose=False)
+    poly2, poly2_chi2 = RobustPolynomialFit(G_binned, delta_mag_binned, 2, dy=delta_emag_binned, verbose=False)
 
     # Do a nice plot
     plt.title("Aperture - PSF\n{} - {} (radius={}) - skylev={:.3f}".format(exposure.name, aper_str, aperradius, skylev))
