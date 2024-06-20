@@ -3,6 +3,8 @@
 from ztfsmp.pipeline import register_op
 
 def psfstudy_map(exposure, logger, args, op_args):
+    from saunerie.plottools import binplot
+
     if not exposure.path.joinpath("match_catalogs.success").exists():
         return False
 
@@ -12,54 +14,10 @@ def psfstudy_map(exposure, logger, args, op_args):
     import matplotlib
     import matplotlib.pyplot as plt
     from numpy.polynomial.polynomial import Polynomial
-
+    from ztfsmp.fit_utils import RobustPolynomialFit
 
     matplotlib.use('Agg')
 
-    psf_df = exposure.get_matched_catalog('psfstars')
-    aper_df = exposure.get_matched_catalog('aperstars')
-    gaia_df = exposure.get_matched_ext_catalog('gaia')
-
-    aper_str = op_args['aperflux']
-    eaper_str = "e{}".format(aper_str)
-
-    # Remove negative flux
-    mask = ~np.any([psf_df['flux']<=0., aper_df[aper_str]<=0.], axis=0)
-    psf_df = psf_df.loc[mask]
-    aper_df = aper_df.loc[mask]
-    gaia_df = gaia_df.loc[mask]
-
-    # Compute magnitude differences between PSF and aperture photometry
-    delta_mag = 2.5*np.log10(psf_df['flux']) - 2.5*np.log10(aper_df[aper_str])
-    delta_emag = np.sqrt((-1.08*psf_df['eflux']/psf_df['flux'])**2+(-1.08*aper_df[eaper_str]/aper_df[aper_str])**2)
-
-    # Compute polynomials
-    poly0, ([poly0_chi2], _, _, _) = Polynomial.fit(gaia_df['Gmag'], delta_mag, 0, w=1./delta_emag, full=True)
-    poly1, ([poly1_chi2], _, _, _) = Polynomial.fit(gaia_df['Gmag'], delta_mag, 1, w=1./delta_emag, full=True)
-    poly2, ([poly2_chi2], _, _, _) = Polynomial.fit(gaia_df['Gmag'], delta_mag, 2, w=1./delta_emag, full=True)
-
-    # Compute chi2
-    poly0_chi2 = poly0_chi2/(len(gaia_df)-1)
-    poly1_chi2 = poly1_chi2/(len(gaia_df)-2)
-    poly2_chi2 = poly2_chi2/(len(gaia_df)-3)
-
-    # Do a nice plot
-    G_min, G_max = gaia_df['Gmag'].min(), gaia_df['Gmag'].max()
-    G_linspace = np.linspace(G_min, G_max)
-
-    plt.subplots(figsize=(10., 4.))
-    plt.title("{} - {}".format(exposure.name, aper_str))
-    plt.errorbar(gaia_df['Gmag'], delta_mag, yerr=delta_emag, ls='none', marker='.', markersize=5., lw=0.5)
-    plt.plot([G_min, G_max], [poly0(G_min), poly0(G_max)], label="Constant - $\\chi_\\nu^2={:.2f}$".format(poly0_chi2))
-    plt.plot([G_min, G_max], [poly1(G_min), poly1(G_max)], label="Linear - $\\chi_\\nu^2={:.2f}$".format(poly1_chi2))
-    plt.plot(G_linspace, poly2(G_linspace), label="Quadratic - $\\chi_\\nu^2={:.2f}$".format(poly2_chi2))
-    plt.legend()
-    plt.ylim(-1., 1.)
-    plt.grid()
-    plt.savefig(exposure.path.joinpath("psfstudy_{}_{}.png".format(aper_str, exposure.name)), dpi=200.)
-    plt.close()
-
-    # Save everything on disk
     header = exposure.exposure_header
     expid = int(header['expid'])
     mjd = float(header['obsmjd'])
@@ -70,11 +28,67 @@ def psfstudy_map(exposure, logger, args, op_args):
     seeing = float(header['seeing'])
     airmass = float(header['airmass'])
 
+    psf_df = exposure.get_matched_catalog('psfstars')
+    aper_df = exposure.get_matched_catalog('aperstars')
+    gaia_df = exposure.get_matched_ext_catalog('gaia')
+
+    aper_str = op_args['aperflux']
+    eaper_str = "e{}".format(aper_str)
+    aperradius = list(set(aper_df['rad{}'.format(aper_str[-1])]))[0]
+
+    # Remove negative flux
+    mask = ~np.any([psf_df['flux']<=0., aper_df[aper_str]<=0.], axis=0)
+    psf_df = psf_df.loc[mask]
+    aper_df = aper_df.loc[mask]
+    gaia_df = gaia_df.loc[mask]
+
+    psf_df = psf_df.assign(mag=-2.5*np.log10(psf_df['flux']), emag=1.08*psf_df['eflux']/psf_df['flux'])
+    aper_df = psf_df.assign(mag=-2.5*np.log10(aper_df[aper_str]), emag=1.08*aper_df[eaper_str]/aper_df[aper_str])
+    delta_mag = aper_df['mag'] - psf_df['mag']
+    delta_emag = np.sqrt(psf_df['emag']**2+aper_df['emag']**2)
+
+    G_min, G_max = gaia_df['Gmag'].min(), gaia_df['Gmag'].max()
+    G_linspace = np.linspace(G_min, G_max)
+    bins = np.arange(G_min, G_max, 1.)
+
+    plt.subplots(figsize=(10., 4.))
+    G_binned, delta_mag_binned, delta_emag_binned = binplot(gaia_df['Gmag'].to_numpy(), delta_mag.to_numpy(), robust=True, data=False, scale=True, weights=1./delta_emag.to_numpy(), bins=bins, color='red', lw=2., zorder=15)
+
+    delta_mag_binned = np.array(delta_mag_binned)
+    # poly0, poly0_chi2 = RobustPolynomialFit(gaia_df['Gmag'].to_numpy(), delta_mag.to_numpy(), 0, dy=delta_emag.to_numpy())
+    # poly1, poly1_chi2 = RobustPolynomialFit(gaia_df['Gmag'].to_numpy(), delta_mag.to_numpy(), 1, dy=delta_emag.to_numpy())
+    # poly2, poly2_chi2 = RobustPolynomialFit(gaia_df['Gmag'].to_numpy(), delta_mag.to_numpy(), 2, dy=delta_emag.to_numpy())
+
+    m = delta_emag_binned > 0.
+    G_binned = G_binned[m]
+    delta_mag_binned = delta_mag_binned[m]
+    delta_emag_binned = delta_emag_binned[m]
+
+    poly0, poly0_chi2 = RobustPolynomialFit(G_binned, delta_mag_binned, 0, dy=delta_emag_binned)
+    poly1, poly1_chi2 = RobustPolynomialFit(G_binned, delta_mag_binned, 1, dy=delta_emag_binned)
+    poly2, poly2_chi2 = RobustPolynomialFit(G_binned, delta_mag_binned, 2, dy=delta_emag_binned)
+
+    # Do a nice plot
+    plt.title("Aperture - PSF\n{} - {} (radius={}) - skylev={:.3f}".format(exposure.name, aper_str, aperradius, skylev))
+    plt.errorbar(gaia_df['Gmag'], delta_mag, yerr=delta_emag, ls='none', marker='.', markersize=5., lw=0.5)
+    plt.plot([G_min, G_max], [poly0(G_min), poly0(G_max)], label="Constant - $\\chi_\\nu^2={:.2f}$".format(poly0_chi2))
+    plt.plot([G_min, G_max], [poly1(G_min), poly1(G_max)], label="Linear - $\\chi_\\nu^2={:.2f}$".format(poly1_chi2))
+    plt.plot(G_linspace, poly2(G_linspace), label="Quadratic - $\\chi_\\nu^2={:.2f}$".format(poly2_chi2))
+    plt.legend()
+    plt.ylim(-1., 1.)
+    plt.grid()
+    # plt.show()
+    plt.savefig(exposure.path.joinpath("psfstudy_{}_{}.png".format(aper_str, exposure.name)), dpi=200.)
+    plt.close()
+
+    # Save everything on disk
+
     result = {}
     result['name'] = exposure.name
     result['mjd'] = mjd
     result['measure_count'] = len(gaia_df)
     result['apercat'] = aper_str
+    result['aperradius'] = aperradius
     result['poly0_0'] = poly0.coef[0]
     result['poly1_0'] = poly1.coef[0]
     result['poly1_1'] = poly1.coef[1]

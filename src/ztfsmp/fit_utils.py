@@ -3,6 +3,8 @@
 import numpy as np
 from scipy import sparse
 from sksparse import cholmod
+import pandas as pd
+from numpy.polynomial.polynomial import Polynomial
 
 import imageproc.composable_functions as compfuncs
 import saunerie.fitparameters as fp
@@ -114,8 +116,9 @@ def RobustPolynomialFit(x, y, degree, dy=None, just_chi2=False):
     else:
         wres = res
 
-    chi2 = sum(wres**2/(len(x)-degree-1))
+    chi2 = sum(wres**2)/(len(x)-degree-1)
     if just_chi2:
         return chi2
     else:
-        return solver.model.params.free[:], chi2
+        return Polynomial(solver.model.params.free[:]), chi2
+        # return solver.model.params.free[:], chi2
