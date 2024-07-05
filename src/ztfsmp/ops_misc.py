@@ -683,19 +683,20 @@ def clean(lightcurve, logger, args, op_args):
 register_op('clean', reduce_op=clean, parameters={'name': 'full_clean', 'type': bool, 'default': False})
 
 
-def filter_psfstars_count(lightcurve, logger, args):
+def filter_psfstars_count(lightcurve, logger, args, op_args):
     from ztfsmp.listtable import ListTable
 
     exposures = lightcurve.get_exposures(files_to_check="makepsf.success")
     flagged = []
 
-    if not args.min_psfstars:
-        logger.info("min-psfstars not defined. Computing it from astro-degree.")
-        logger.info("astro-degree={}".format(args.astro_degree))
-        min_psfstars = (args.astro_degree+1)*(args.astro_degree+2)
-        logger.info("Minimum PSF stars={}".format(min_psfstars))
-    else:
-        min_psfstars = args.min_psfstars
+    # if not args.min_psfstars:
+    #     logger.info("min-psfstars not defined. Computing it from astro-degree.")
+    #     logger.info("astro-degree={}".format(args.astro_degree))
+    #     min_psfstars = (args.astro_degree+1)*(args.astro_degree+2)
+    #     logger.info("Minimum PSF stars={}".format(min_psfstars))
+    # else:
+    #     min_psfstars = args.min_psfstars
+    min_psfstars = op_args['min_psfstars']
 
     for exposure in exposures:
         psfstars_count = len(exposure.get_catalog("psfstars.list").df)
@@ -704,7 +705,7 @@ def filter_psfstars_count(lightcurve, logger, args):
             flagged.append(exposure.name)
 
     lightcurve.add_noprocess(flagged)
-    logger.info("{} exposures flagged has having PSF stars count < {}".format(len(flagged), args.min_psfstars))
+    logger.info("{} exposures flagged as having PSF stars count < {}".format(len(flagged), min_psfstars))
 
     return True
 

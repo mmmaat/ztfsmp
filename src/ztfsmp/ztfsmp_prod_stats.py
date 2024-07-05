@@ -39,16 +39,17 @@ def retrieve_job_core_count(path):
 def main():
     argparser = argparse.ArgumentParser(description="Retrieve stats and info for a given run.")
     argparser.add_argument('--wd', type=pathlib.Path, required=True, help="Working directory.")
-    argparser.add_argument('--run-folder', type=pathlib.Path, required=True)
+    # argparser.add_argument('--run-folder', type=pathlib.Path, required=True)
     argparser.add_argument('--ops', type=pathlib.Path, help="Pipeline description to run. See ztfsmp-pipeline for valid operations.", required=True)
-    argparser.add_argument('--run-name', type=str, required=True)
+    # argparser.add_argument('--run-name', type=str, required=True)
     argparser.add_argument('--output', type=pathlib.Path, required=False)
+    argparser.add_argument('--ztfnames', type=pathlib.Path, default=None, required=False)
 
     args = argparser.parse_args()
 
     args.wd = args.wd.expanduser().resolve()
     args.ops = args.ops.expanduser().resolve()
-    args.run_folder = args.run_folder.expanduser().resolve()
+    # args.run_folder = args.run_folder.expanduser().resolve()
     args.output = args.output.expanduser().resolve()
 
     # Retrieve pipeline description
@@ -63,7 +64,13 @@ def main():
 
     print("Retrieving all light curves.")
     # Retrieve all light curve paths in the given working directory
-    lightcurve_paths = list(args.wd.glob("*/z*"))
+    if args.ztfnames is not None:
+        if args.ztfnames.exists():
+            with open(args.ztfnames, 'r') as f:
+                lightcurve_paths = [args.wd.joinpath("{}/{}".format(*ztfname.strip().split("-"))) for ztfname in list(f.readlines())]
+                print(len(lightcurve_paths))
+    else:
+        lightcurve_paths = list(args.wd.glob("*/z*"))
     # lightcurve_paths = list(args.wd.glob("{}/z*".format("ZTF18aahqavd")))
 
     print("Collecting pipeline status for each light curve.")
