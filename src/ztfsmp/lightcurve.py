@@ -439,65 +439,99 @@ class Lightcurve(_Lightcurve):
             return f.readline().strip()
 
     def extract_exposure_catalog(self, files_to_check=None, ignore_noprocess=False):
+        def _get_key(header, keys, t):
+            if isinstance(keys, str):
+                keys = [keys]
+
+            for k in keys:
+                if k.upper() in header.keys():
+                    return t(header[k])
+
+            return None
+
         exposures = []
         for exposure in self.get_exposures(files_to_check=files_to_check, ignore_noprocess=ignore_noprocess):
             header = exposure.exposure_header
             exposure_dict = {}
             exposure_dict['name'] = exposure.name
-            exposure_dict['airmass'] = float(header['airmass'])
-            exposure_dict['mjd'] = float(header['obsmjd'])
-            exposure_dict['seeing'] = float(header['seeing'])
-            exposure_dict['gfseeing'] = float(header['gfseeing'])
-            exposure_dict['ha'] = float(header['hourangd']) #*15
-            exposure_dict['ha_15'] = 15.*float(header['hourangd'])
-            exposure_dict['lst'] = header['oblst']
-            exposure_dict['azimuth'] = float(header['azimuth'])
-            exposure_dict['dome_azimuth'] = float(header['dome_az'])
-            exposure_dict['elevation'] = float(header['elvation'])
-            exposure_dict['z'] = 90. - float(header['elvation'])
-            exposure_dict['telra'] = float(header['telrad'])
-            exposure_dict['teldec'] = float(header['teldecd'])
+            exposure_dict['airmass'] = _get_key(header, 'airmass', float)
+            exposure_dict['mjd'] = _get_key(header, 'obsmjd', float)
+            exposure_dict['seeing'] = _get_key(header, 'seeing', float)
+            exposure_dict['gfseeing'] = _get_key(header, 'gfseeing', float)
+            exposure_dict['ha'] = _get_key(header, 'hourangd', float) #*15
+            exposure_dict['ha_15'] = _get_key(header, 'hourangd', lambda x: 15.*float(x))
+            exposure_dict['lst'] = _get_key(header, 'oblst', str)
+            exposure_dict['azimuth'] = _get_key(header, 'azimuth', float)
+            exposure_dict['dome_azimuth'] = _get_key(header, 'dome_az', float)
+            exposure_dict['elevation'] = _get_key(header, 'elvation', float)
+            exposure_dict['z'] = _get_key(header, 'elvation', lambda x: 90. - float(x))
+            exposure_dict['telra'] = _get_key(header, 'telrad', float)
+            exposure_dict['teldec'] = _get_key(header, 'teldecd', float)
 
-            exposure_dict['field'] = int(header['dbfield'])
-            exposure_dict['ccdid'] = int(header['ccd_id'])
-            exposure_dict['qid'] = int(header['amp_id'])
-            exposure_dict['rcid'] = int(header['dbrcid'])
+            exposure_dict['field'] = _get_key(header, ['dbfield', 'fieldid'], int)
+            exposure_dict['ccdid'] = _get_key(header, ['ccd_id', 'ccdid'], int)
+            exposure_dict['qid'] = _get_key(header, ['amp_id', 'qid'], int)
+            exposure_dict['rcid'] = _get_key(header, ['dbrcid', 'rcid'], int)
+            exposure_dict['fid'] = _get_key(header, ['dbfid', 'filterid'], int)
+            # if 'dbfield'.upper() in header.keys():
+            #     exposure_dict['field'] = int(header['dbfield'])
+            # else:
+            #     exposure_dict['field'] = _get_key(header, 'fieldid', int)
 
-            exposure_dict['fid'] = int(header['dbfid'])
+            # if 'ccd_id'.upper() in header.keys():
+            #     exposure_dict['ccdid'] = int(header['ccd_id'])
+            # else:
+            #     exposure_dict['ccdid'] = _get_key(header, 'ccdid', int)
+
+            # if 'amp_id'.upper() in header.keys():
+            #     exposure_dict['qid'] = int(header['amp_id'])
+            # else:
+            #     exposure_dict['qid'] = _get_key(header, 'qid', int)
+
+            # if 'dbrcid' in header.keys():
+            #     exposure_dict['rcid'] = int(header['dbrcid'])
+            # else:
+            #     exposure_dict['rcid'] = _get_key(header, 'rcid', int)
+
+            # if 'fid' in header.keys():
+            #     exposure_dict['fid'] = int(header['dbfid'])
+            # else:
+            #     exposure_dict['fid'] = _get_key(header, 'filterid', int)
+
             exposure_dict['filtercode'] = exposure.filterid
 
-            exposure_dict['temperature'] = float(header['tempture'])
-            exposure_dict['head_temperature'] = float(header['headtemp'])
-            exposure_dict['ccdtemp'] = float(header['ccdtmp{}'.format(str(header['ccd_id']).zfill(2))])
-            exposure_dict['exptime'] = float(header['exptime'])
-            exposure_dict['expid'] = int(header['dbexpid'])
+            exposure_dict['temperature'] = _get_key(header, 'tempture', float)
+            exposure_dict['head_temperature'] = _get_key(header, 'headtemp', float)
+            exposure_dict['ccdtemp'] = _get_key(header, 'ccdtmp{}'.format(str(header['ccd_id']).zfill(2)), float)
+            exposure_dict['exptime'] = _get_key(header, 'exptime', float)
+            exposure_dict['expid'] = _get_key(header, 'dbexpid', int)
 
-            exposure_dict['wind_speed'] = float(header['windspd'])
-            exposure_dict['wind_dir'] = float(header['winddir'])
-            exposure_dict['dewpoint'] = float(header['dewpoint'])
-            exposure_dict['humidity'] = float(header['humidity'])
-            exposure_dict['wetness'] = float(header['wetness'])
-            exposure_dict['pressure'] = float(header['pressure'])
+            exposure_dict['wind_speed'] = _get_key(header, 'windspd', float)
+            exposure_dict['wind_dir'] = _get_key(header, 'winddir', float)
+            exposure_dict['dewpoint'] = _get_key(header, 'dewpoint', float)
+            exposure_dict['humidity'] = _get_key(header, 'humidity', float)
+            exposure_dict['wetness'] = _get_key(header, 'wetness', float)
+            exposure_dict['pressure'] = _get_key(header, 'pressure', float)
 
-            exposure_dict['crpix1'] = float(header['crpix1'])
-            exposure_dict['crpix2'] = float(header['crpix2'])
-            exposure_dict['crval1'] = float(header['crval1'])
-            exposure_dict['crval2'] = float(header['crval2'])
-            exposure_dict['cd_11'] = float(header['cd1_1'])
-            exposure_dict['cd_12'] = float(header['cd1_2'])
-            exposure_dict['cd_21'] = float(header['cd2_1'])
-            exposure_dict['cd_22'] = float(header['cd2_2'])
+            exposure_dict['crpix1'] = _get_key(header, 'crpix1', float)
+            exposure_dict['crpix2'] = _get_key(header, 'crpix2', float)
+            exposure_dict['crval1'] = _get_key(header, 'crval1', float)
+            exposure_dict['crval2'] = _get_key(header, 'crval2', float)
+            exposure_dict['cd_11'] = _get_key(header, 'cd1_1', float)
+            exposure_dict['cd_12'] = _get_key(header, 'cd1_2', float)
+            exposure_dict['cd_21'] = _get_key(header, 'cd2_1', float)
+            exposure_dict['cd_22'] = _get_key(header, 'cd2_2', float)
 
-            exposure_dict['gain'] = float(header['gain'])
-            exposure_dict['readnoise'] = float(header['readnoi'])
-            exposure_dict['darkcurrent'] = float(header['darkcur'])
+            exposure_dict['gain'] = _get_key(header, 'gain', float)
+            exposure_dict['readnoise'] = _get_key(header, 'readnoi', float)
+            exposure_dict['darkcurrent'] = _get_key(header, 'darkcur', float)
 
-            exposure_dict['ztfmagzp'] = float(header['magzp'])
-            exposure_dict['ztfmagzpunc'] = float(header['magzpunc'])
-            exposure_dict['ztfmagzprms'] = float(header['magzprms'])
+            exposure_dict['ztfmagzp'] = _get_key(header, 'magzp', float)
+            exposure_dict['ztfmagzpunc'] = _get_key(header, 'magzpunc', float)
+            exposure_dict['ztfmagzprms'] = _get_key(header, 'magzprms', float)
 
-            exposure_dict['skylev'] = float(header['sexsky'])
-            exposure_dict['sigma_skylev'] = float(header['sexsigma'])
+            exposure_dict['skylev'] = _get_key(header, 'sexsky', float)
+            exposure_dict['sigma_skylev'] = _get_key(header, 'sexsigma', float)
 
             exposures.append(exposure_dict)
 

@@ -62,7 +62,7 @@ def mkcat2(exposure, logger, args, op_args):
         gaia_stars_skycoords = SkyCoord(ra=gaia_stars_df['ra'].to_numpy(), dec=gaia_stars_df['dec'].to_numpy(), unit='deg')
         gaia_stars_inside = wcs.footprint_contains(gaia_stars_skycoords)
         inside = sum(gaia_stars_inside)
-        gaia_stars_inside = contained_in_exposure(gaia_stars_skycoords, wcs, return_mask=True)
+        # gaia_stars_inside = contained_in_exposure(gaia_stars_skycoords, wcs, return_mask=True)
         if np.sum(gaia_stars_inside) == 0:
             logger.error("No Gaia stars found inside the exposure!")
             return False

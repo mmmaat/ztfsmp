@@ -878,11 +878,15 @@ def concat_catalogs(lightcurve, logger, args, op_args):
     for ccdid in list(range(1, 17)):
         for qid in list(range(1, 5)):
             filename = lightcurve.path.joinpath("measures/measures_{}-{}-c{}-q{}.parquet".format(lightcurve.name, lightcurve.filterid, str(ccdid).zfill(2), str(qid)))
-            if not filename.exists():
-                df = _extract_quadrant(ccdid, qid)
-                if df is not None:
-                    logger.info("ccdid={}, qid={}: found {} measures".format(ccdid, qid, len(df)))
-                    df.to_parquet(filename)
+            # if not filename.exists():
+            #     df = _extract_quadrant(ccdid, qid)
+            #     if df is not None:
+            #         logger.info("ccdid={}, qid={}: found {} measures".format(ccdid, qid, len(df)))
+            #         df.to_parquet(filename)
+            df = _extract_quadrant(ccdid, qid)
+            if df is not None:
+                logger.info("ccdid={}, qid={}: found {} measures".format(ccdid, qid, len(df)))
+                df.to_parquet(filename)
 
     return True
 

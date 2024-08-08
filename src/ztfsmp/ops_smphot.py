@@ -273,7 +273,6 @@ def smphot_stars(lightcurve, logger, args, op_args):
 
         calib_cat_table = ListTable(calib_cat_header, calib_cat_df)
         calib_cat_table.write_to(smphot_stars_cat_path)
-        print(smphot_stars_cat_path.with_suffix(".csv"))
         calib_cat_table.write_to_csv(smphot_stars_cat_path.with_suffix(".csv"))
         logger.info("Done")
 
@@ -281,6 +280,10 @@ def smphot_stars(lightcurve, logger, args, op_args):
         to_delete_list = list(lightcurve.smphot_stars_path.glob("mklc_*/*.fits"))
         for to_delete in to_delete_list:
             to_delete.unlink()
+
+        if len(calib_cat_df) == 0:
+            logger.error("Star SMP failed! (no output stars)")
+            return False
 
     else:
         # Run on a single worker
@@ -291,6 +294,11 @@ def smphot_stars(lightcurve, logger, args, op_args):
         to_delete_list = list(lightcurve.smphot_stars_path.glob("*.fits"))
         for to_delete in to_delete_list:
             to_delete.unlink()
+
+        df = ListTable.from_filename(smphot_stars_cat_path)
+        if len(df) == 0:
+            logger.error("Star SMP failed! (no output stars)")
+            return False
 
     return True
 

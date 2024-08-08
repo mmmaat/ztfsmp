@@ -227,7 +227,7 @@ def main():
     argparser.add_argument('-j', '--n_proc', dest='n_jobs', type=int, default=1)
     argparser.add_argument('--wd', type=pathlib.Path, help="Working directory", required=True)
     argparser.add_argument('--filtercode', choices=ztf_filtercodes, default='all', help="Only perform computations on one or all filters.")
-    argparser.add_argument('--func', type=str, help="Pipeline function to run. Several functions can be run sequencialy by separating them with commas, eg: \"make_catalog,mkcat2,makepsf\"", required=True)
+    argparser.add_argument('--func', type=str, help="Pipeline function file to run. {} registered functions.".format(len(pipeline.ops)), required=True)
     argparser.add_argument('--no-map', dest='no_map', action='store_true', help="Skip map operations.")
     argparser.add_argument('--no-reduce', dest='no_reduce', action='store_true', help="Skip reduce operations.")
     argparser.add_argument('--cluster-worker', type=int, default=0)
