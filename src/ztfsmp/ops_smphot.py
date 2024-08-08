@@ -102,25 +102,26 @@ def smphot(lightcurve, logger, args, op_args):
 
     returncode = run_and_log(["mklc", "-t", lightcurve.mappings_path, "-O", lightcurve.smphot_path, "-v", lightcurve.driver_path], logger=logger)
 
-    logger.info("Deleting unuseful *.fits files...")
-    to_delete_list = list(lightcurve.smphot_path.glob("*.fits"))
-    if returncode == 0:
-        sn_parameters = pd.read_hdf(args.lc_folder.joinpath("{}.hd5".format(lightcurve.name)), key='sn_info')
-        fit_df = ListTable.from_filename(lightcurve.smphot_path.joinpath("lc2fit.dat")).df
-        t0 = sn_parameters['t0mjd'].item()
-        t0_idx = np.argmin(np.abs(fit_df['Date']-t0))
-        t0_exposure = fit_df.iloc[t0_idx]['name']
-        logger.info("Keeping t0 image {}".format(t0_exposure))
-        to_delete_list.remove(lightcurve.smphot_path.joinpath(t0_exposure+".fits"))
-        logger.info("Keeping galaxy model {}".format("test"))
-        to_delete_list.remove(lightcurve.smphot_path.joinpath("galaxy_sn.fits"))
+    if not op_args['keep_intermediates']:
+        logger.info("Deleting unuseful *.fits files...")
+        to_delete_list = list(lightcurve.smphot_path.glob("*.fits"))
+        if returncode == 0:
+            sn_parameters = pd.read_hdf(args.lc_folder.joinpath("{}.hd5".format(lightcurve.name)), key='sn_info')
+            fit_df = ListTable.from_filename(lightcurve.smphot_path.joinpath("lc2fit.dat")).df
+            t0 = sn_parameters['t0mjd'].item()
+            t0_idx = np.argmin(np.abs(fit_df['Date']-t0))
+            t0_exposure = fit_df.iloc[t0_idx]['name']
+            logger.info("Keeping t0 image {}".format(t0_exposure))
+            to_delete_list.remove(lightcurve.smphot_path.joinpath(t0_exposure+".fits"))
+            logger.info("Keeping galaxy model {}".format("test"))
+            to_delete_list.remove(lightcurve.smphot_path.joinpath("galaxy_sn.fits"))
 
-    for to_delete in to_delete_list:
-        to_delete.unlink()
+        for to_delete in to_delete_list:
+            to_delete.unlink()
 
     return (returncode == 0)
 
-register_op('smphot', reduce_op=smphot)
+register_op('smphot', reduce_op=smphot, parameters={'name': 'keep_intermediates', 'type': bool, 'default': False, 'desc': ""})
 
 
 def smphot_plot(lightcurve, logger, args, op_args):
@@ -332,20 +333,21 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
     stars_lc_df = pd.read_parquet(lightcurve.smphot_stars_path.joinpath("stars_lightcurves.parquet"))
     stars_df = pd.read_parquet(lightcurve.smphot_stars_path.joinpath("constant_stars.parquet"))
     gaia_df = lightcurve.get_ext_catalog('gaia').reset_index().set_index('Source', drop=False).loc[stars_df.index]
+    gaia_df = gaia_df[~gaia_df.index.duplicated(keep='first')]
 
     print(stars_df)
-
+    print(gaia_df)
     stars_lc_outlier_df = stars_lc_df.loc[stars_lc_df['bads']]
     stars_lc_df = stars_lc_df.loc[~stars_lc_df['bads']]
 
     # Compare fitted star magnitude to catalog
     plt.subplots(figsize=(5., 5.))
-    plt.suptitle("Fitted star magnitude vs external catalog ({})".format(args.photom_cat))
+    plt.suptitle("Fitted star magnitude vs external catalog ({})".format(op_args['photom_cat']))
     plt.scatter(stars_df['mag'].to_numpy(), gaia_df['Gmag'].to_numpy(), c=gaia_df['BP-RP'].to_numpy(), s=10)
     plt.xlabel("$m$ [mag]")
-    plt.ylabel("$m_\\mathrm{{{}}}$ [mag]".format(args.photom_cat))
+    plt.ylabel("$m_\\mathrm{{{}}}$ [mag]".format(op_args['photom_cat']))
     cbar = plt.colorbar()
-    cbar.set_label("$c_\mathrm{{{}}}$ [mag]".format(args.photom_cat))
+    cbar.set_label("$c_\mathrm{{{}}}$ [mag]".format(op_args['photom_cat']))
     plt.grid()
     plt.savefig(smphot_stars_plot_output.joinpath("mag_ext_cat.png"), dpi=300.)
     plt.close()
@@ -357,7 +359,7 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
     plt.axhline(0.01, ls='-.', color='black', label="1%")
     plt.axhline(0.02, ls='--', color='black', label="2%")
     plt.grid()
-    plt.xlabel("$m_\mathrm{{{}}}$ [AB mag]".format(args.photom_cat))
+    plt.xlabel("$m_\mathrm{{{}}}$ [AB mag]".format(op_args['photom_cat']))
     plt.ylabel("$\sigma_\hat{m}$ [mag]")
     plt.legend()
     plt.savefig(smphot_stars_plot_output.joinpath("repeatability_mag.png"), dpi=300.)
@@ -370,7 +372,7 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
     plt.axhline(0.01, ls='-.', color='black', label="1%")
     plt.axhline(0.02, ls='--', color='black', label="2%")
     plt.grid()
-    plt.xlabel("$m_\mathrm{{{}}}$ [AB mag]".format(args.photom_cat))
+    plt.xlabel("$m_\mathrm{{{}}}$ [AB mag]".format(op_args['photom_cat']))
     plt.ylabel("$\sigma_\hat{m}$ [mag]")
     plt.legend()
     plt.ylim(0., 0.05)
@@ -565,7 +567,7 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
         print("Star n°{}, G={}, m={}, sigma_m={}".format(star_index, cat_mag, m, em))
 
         fig = plt.subplots(ncols=2, nrows=1, figsize=(12., 4.), gridspec_kw={'width_ratios': [5, 1], 'wspace': 0, 'hspace': 0}, sharey=True)
-        plt.suptitle("Star {} - $m_\mathrm{{{}}}$={} [AB mag]\n$m={:.4f}$ [mag], $\\sigma_m={:.4f}$ [mag]".format(star_index, args.photom_cat, cat_mag, m, em))
+        plt.suptitle("Star {} - $m_\mathrm{{{}}}$={} [AB mag]\n$m={:.4f}$ [mag], $\\sigma_m={:.4f}$ [mag]".format(star_index, op_args['photom_cat'], cat_mag, m, em))
         ax = plt.subplot(1, 2, 1)
         plt.xlim(mjd_min, mjd_max)
         ax.tick_params(which='both', direction='in')
@@ -594,7 +596,8 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
 
     return True
 
-register_op('smphot_stars_plot', reduce_op=smphot_stars_plot)
+register_op('smphot_stars_plot', reduce_op=smphot_stars_plot, parameters={'name': 'photom_cat', 'type': str, 'default': 'gaia', 'desc': ""})
+
 
 def smphot_flux_bias(lightcurve, logger, args):
     import pickle
@@ -725,4 +728,4 @@ def smphot_flux_bias(lightcurve, logger, args):
     plt.savefig(lightcurve.smphot_stars_path.joinpath("astro_smp_flux_bias.png"), dpi=150.)
     plt.close()
 
-register_op('smphot_stars_plot', reduce_op=smphot_stars_plot)
+register_op('smphot_flux_bias', reduce_op=smphot_stars_plot)

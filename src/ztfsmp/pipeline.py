@@ -129,6 +129,7 @@ pipeline = Pipeline()
 
 
 def register_op(name, map_op=None, reduce_op=None, plot_op=None, rm_list=None, parameters=None):
+    assert name not in list(pipeline.ops.keys()), "{} pipeline operation already registed!".format(name)
     if isinstance(parameters, dict):
         parameters = [parameters]
 
