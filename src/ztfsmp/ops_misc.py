@@ -891,3 +891,107 @@ def concat_catalogs(lightcurve, logger, args, op_args):
     return True
 
 register_op('concat_catalogs', reduce_op=concat_catalogs)
+
+
+def build_psfstars_catalog(lightcurve, logger, args, op_args):
+    from croaks.match import NearestNeighAssoc
+    from croaks import DataProxy
+    from saunerie.linearmodels import LinearModel, RobustLinearSolver
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+    from ztfsmp.misc_utils import make_index_from_array
+    from ztfsmp.listtable import ListTable
+
+    photom_df = ListTable.from_filename(lightcurve.path.joinpath("mappings/photom_ratios.ntuple")).df.set_index('expccd')
+
+    measures_df = pd.concat([pd.read_parquet(measure_path, columns=['gaia_Source', 'psf_x', 'psf_y', 'psf_flux', 'psf_eflux', 'filtercode', 'field', 'ccdid', 'qid', 'mjd', 'quadrant']) for measure_path in lightcurve.path.joinpath("measures").glob("measures_*.parquet")])
+    measures_df = measures_df.rename(columns={'gaia_Source': 'gaiaid', 'psf_x': 'x', 'psf_y': 'y', 'psf_flux': 'flux', 'psf_eflux': 'eflux'})
+    # Remove stars for which we only have 1 measurement
+    #
+    star_index_map, star_index = make_index_from_array(measures_df['gaiaid'].to_numpy())
+    star_mask = (np.bincount(star_index) < 10)
+    to_remove_mask = star_mask[star_index]
+    measures_df = measures_df.loc[~to_remove_mask].reset_index()
+    print("Removed {} measures".format(sum(to_remove_mask)))
+
+    measures_df['flux'] = measures_df['flux'].to_numpy()/photom_df.loc[measures_df['quadrant']]['alpha'].to_numpy()
+
+    dp = DataProxy(measures_df[['flux', 'eflux', 'gaiaid', 'mjd']].to_records(), flux='flux', eflux='eflux', gaiaid='gaiaid', mjd='mjd')
+    dp.make_index('gaiaid')
+    dp.make_index('mjd')
+
+    w = 1./np.sqrt(dp.eflux**2)
+
+    # Fit of the constant star model
+    logger.info("Building model")
+    model = LinearModel(list(range(len(dp.nt))), dp.gaiaid_index, np.ones_like(dp.gaiaid, dtype=float), name='flux')
+    solver = RobustLinearSolver(model, dp.flux, weights=w)
+    logger.info("Solving model")
+    solver.model.params.free = solver.robust_solution(local_param='flux')
+    logger.info("Done")
+
+    flux = solver.model.params.free
+
+    measures_df = measures_df.assign(res=solver.get_res(dp.flux),
+                                     bads=solver.bads)
+    measures_df = measures_df.assign(mag=-2.5*np.log10(measures_df['flux']),
+                                     emag=2.5/np.log(10)*measures_df['eflux']/measures_df['flux'],
+                                     mean_mag=-2.5*np.log10(flux[dp.gaiaid_index]))
+
+    measures_df = measures_df.assign(wres=measures_df['res']/measures_df['eflux'])
+
+    # for gaiaid in list(set(measures_df['gaiaid'])):
+    #     df = measures_df.loc[measures_df['gaiaid']==gaiaid]
+    #     plt.suptitle("{} - RMS={}".format(gaiaid, np.std(df['mag'])))
+    #     plt.plot(df['mjd'], df['mag'], '.')
+    #     plt.axhline(df.iloc[0]['mean_mag'])
+    #     plt.show()
+
+    plt.hist(measures_df['mean_mag']-measures_df['mag'], bins='auto')
+    plt.show()
+
+    stars_df = pd.DataFrame(data={'mag': -2.5*np.log10(flux),
+                                  'emag': 2.5/np.log(10)*np.sqrt(solver.get_cov().diagonal())/solver.model.params.free,
+                                  'chi2': np.bincount(dp.gaiaid_index[~solver.bads], weights=measures_df.loc[~solver.bads]['wres']**2)/np.bincount(dp.gaiaid_index[~solver.bads]),
+                                  'gaiaid': list(dp.gaiaid_map.keys())})
+
+    rms_flux = np.sqrt(np.bincount(dp.gaiaid_index[~solver.bads], weights=dp.flux[~solver.bads]**2)/np.bincount(dp.gaiaid_index[~solver.bads])-(np.bincount(dp.gaiaid_index[~solver.bads], weights=dp.flux[~solver.bads])/np.bincount(dp.gaiaid_index[~solver.bads]))**2)
+    # rms_mag = np.sqrt(np.bincount(dp.gaiaid_index[~solver.bads], weights=measures_df.loc[~solver.bads]['mag']**2)/np.bincount(dp.gaiaid_index[~solver.bads])-(np.bincount(dp.gaiaid_index[~solver.bads], weights=measures_df[~solver.bads]['mag'])/np.bincount(dp.gaiaid_index[~solver.bads]))**2)
+    b = np.bincount(dp.gaiaid_index[~solver.bads])
+    stars_df = stars_df.assign(rms_mag=2.5/np.log(10)*rms_flux/solver.model.params.free)
+
+    gaia_df = lightcurve.get_ext_catalog('gaia').drop_duplicates(subset='Source').set_index('Source', drop=True)
+    gaia_df = gaia_df.loc[stars_df['gaiaid']]
+
+    stars_df = stars_df.assign(Gmag=gaia_df['Gmag'].tolist(),
+                               eGmag=gaia_df['e_Gmag'].tolist(),
+                               color=gaia_df['BP-RP'].tolist())
+
+    stars_df = stars_df.set_index('gaiaid')
+
+    stars_df.to_parquet(lightcurve.path.joinpath("psfstars.parquet"))
+
+
+register_op('build_psfstars_catalog', reduce_op=build_psfstars_catalog)
+
+
+def study_repeatability(lightcurve, logger, args, op_args):
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    psfstars_df = pd.read_parquet(lightcurve.path.joinpath("psfstars.parquet"))
+    smpstars_df = pd.read_parquet(lightcurve.path.joinpath("smphot_stars/constant_stars.parquet"))
+    gaia_df = lightcurve.get_ext_catalog('gaia').drop_duplicates(subset='Source').set_index('Source', drop=True)
+
+    plt.subplots(figsize=(10., 4.))
+    plt.plot(gaia_df.loc[psfstars_df.index]['Gmag'], psfstars_df['rms_mag'], '.', label="PSF stars")
+    plt.plot(gaia_df.loc[smpstars_df.index]['Gmag'], smpstars_df['rms_mag'], '.', label="SMP stars")
+    plt.xlabel("$m_G$ [AB mag]")
+    plt.ylabel("RMS")
+    plt.ylim(0., 0.5)
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+register_op('study_repeatability', reduce_op=study_repeatability)

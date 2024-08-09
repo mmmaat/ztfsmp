@@ -16,7 +16,7 @@ def reference_exposure(lightcurve, logger, args, op_args):
 
     # Determination of reference exposure
     logger.info("Determining best seeing quadrant...")
-    exposures = lightcurve.get_exposures(files_to_check="psfstars.list")
+    exposures = lightcurve.get_exposures(files_to_check="cat_indices.hd5")
     seeings = dict([(exposure.name, (exposure.exposure_header['seeing'], exposure.field)) for exposure in exposures])
     seeings_df = pd.DataFrame({'seeing': list(map(lambda x: x.exposure_header['seeing'], exposures)),
                                'fieldid': list(map(lambda x: x.field, exposures)),
@@ -599,11 +599,12 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
 register_op('smphot_stars_plot', reduce_op=smphot_stars_plot, parameters={'name': 'photom_cat', 'type': str, 'default': 'gaia', 'desc': ""})
 
 
-def smphot_flux_bias(lightcurve, logger, args):
+def smphot_flux_bias(lightcurve, logger, args, op_args):
     import pickle
     import numpy as np
     import pandas as pd
-    from utils import ListTable, match_pixel_space
+    from ztfsmp.misc_utils import match_pixel_space
+    from ztfsmp.listtable import ListTable
     from croaks.match import NearestNeighAssoc
     import matplotlib.pyplot as plt
     import copy
@@ -615,9 +616,9 @@ def smphot_flux_bias(lightcurve, logger, args):
         tp2px_model = astro_models['tp2px']
         astro_dp = astro_models['dp']
 
-
-    smp_stars_df = pd.read_parquet(lightcurve.smphot_stars_path.joinpath("constant_stars.parquet")).dropna(subset=['ra', 'dec'])
-    plt.plot(smp_stars_df['m'].to_numpy(), smp_stars_df['cat_mag'], '.')
+    smp_stars_df = pd.read_parquet(lightcurve.smphot_stars_path.joinpath("constant_stars.parquet"))
+    print(smp_stars_df)
+    plt.plot(smp_stars_df['mag'].to_numpy(), smp_stars_df['cat_mag'], '.')
     plt.show()
     tp2px_residuals = tp2px_model.residuals(np.array([astro_dp.tpx, astro_dp.tpy]), np.array([astro_dp.x, astro_dp.y]), np.array([astro_dp.pmtpx, astro_dp.pmtpy]), astro_dp.mjd, exposure_indices=astro_dp.exposure_index)
     astro_stars = {}
@@ -728,4 +729,4 @@ def smphot_flux_bias(lightcurve, logger, args):
     plt.savefig(lightcurve.smphot_stars_path.joinpath("astro_smp_flux_bias.png"), dpi=150.)
     plt.close()
 
-register_op('smphot_flux_bias', reduce_op=smphot_stars_plot)
+register_op('smphot_flux_bias', reduce_op=smphot_flux_bias)
