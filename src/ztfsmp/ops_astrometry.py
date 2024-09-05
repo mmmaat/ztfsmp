@@ -273,7 +273,7 @@ def astrometry_fit(lightcurve, logger, args, op_args):
     from saunerie.plottools import binplot
     from croaks import DataProxy
 
-    from ztfsmp.ztf_utils import ztf_latitude
+    from ztfsmp.ztf_utils import ztf_latitude, quadrant_width_px, quadrant_height_px
     from ztfsmp.fit_utils import BiPol2D_fit
     from ztfsmp.misc_utils import create_2D_mesh_grid, poly2d_to_file
     from ztfsmp.listtable import ListTable
@@ -289,7 +289,14 @@ def astrometry_fit(lightcurve, logger, args, op_args):
     reference_exposure = lightcurve.get_reference_exposure()
     logger.info("Reference exposure: {}".format(reference_exposure))
 
-    sn_parameters_df = pd.read_hdf(args.lc_folder.joinpath("{}.hd5".format(lightcurve.name)), key='sn_info')
+    if op_args['sn']:
+        sn_parameters_df = pd.read_hdf(args.lc_folder.joinpath("{}.hd5".format(lightcurve.name)), key='sn_info')
+        target_ra, target_dec = sn_parameters_df['sn_ra'].to_numpy(), sn_parameters_df['sn_dec'].to_numpy()
+    else:
+        reference_exp = lightcurve.exposures[reference_exposure]
+        reference_wcs = reference_exp.wcs
+        target_pos = reference_wcs.pixel_to_world([quadrant_width_px], [quadrant_height_px])
+        target_ra, target_dec = target_pos.ra.degree, target_pos.dec.degree
 
     # Define plot saving folder
     lightcurve.astrometry_path.mkdir(exist_ok=True)
@@ -361,7 +368,7 @@ def astrometry_fit(lightcurve, logger, args, op_args):
         return tpx[0], tpy[0], pmtpx.squeeze(), pmtpy.squeeze()
 
     tpx, tpy, pmtpx, pmtpy = _project_tp(matched_stars_df['ra'].to_numpy(), matched_stars_df['dec'].to_numpy(),
-                                         sn_parameters_df['sn_ra'].to_numpy(), sn_parameters_df['sn_dec'].to_numpy(),
+                                         target_ra, target_dec,
                                          matched_stars_df['pmra'].to_numpy(), matched_stars_df['pmdec'].to_numpy())
 
     matched_stars_df['tpx'] = tpx
@@ -429,7 +436,7 @@ def astrometry_fit(lightcurve, logger, args, op_args):
         gaia_stars_df = lightcurve.get_ext_catalog('gaia').rename(columns={'pmRA': 'pmra', 'pmDE': 'pmdec'})
 
         tpx, tpy, pmtpx, pmtpy = _project_tp(gaia_stars_df['ra'].to_numpy(), gaia_stars_df['dec'].to_numpy(),
-                                             sn_parameters_df['sn_ra'].to_numpy(), sn_parameters_df['sn_dec'].to_numpy(),
+                                             target_ra, target_dec,
                                              gaia_stars_df['pmra'].to_numpy(), gaia_stars_df['pmdec'].to_numpy())
 
         tp = np.array([tpx, tpy])
@@ -500,7 +507,7 @@ def astrometry_fit(lightcurve, logger, args, op_args):
         corner_points_radec = np.vstack(wcs.pixel_to_world_values(corner_points_px)).T
 
         [corner_points_tpx], [corner_points_tpy], _, _ = gnomonic.gnomonic_projection(np.deg2rad(corner_points_radec[0]), np.deg2rad(corner_points_radec[1]),
-                                                                                      np.deg2rad(sn_parameters_df['sn_ra'].to_numpy()), np.deg2rad(sn_parameters_df['sn_dec'].to_numpy()),
+                                                                                      np.deg2rad(target_ra), np.deg2rad(target_dec),
                                                                                       np.zeros(4), np.zeros(4))
 
         grid_points_tp = create_2D_mesh_grid(np.linspace(np.min(corner_points_tpx), np.max(corner_points_tpx), op_args['grid_res']),
@@ -562,7 +569,8 @@ def astrometry_fit(lightcurve, logger, args, op_args):
 register_op('astrometry_fit', reduce_op=astrometry_fit, parameters=[{'name': 'degree', 'type': int, 'default': 5, 'desc': "Degree of the polynomial to use."},
                                                                     {'name': 'min_mag', 'type': float, 'default': float('nan'), 'desc': "Magnitude cut (in instrumental mag) for stars entering the fit."},
                                                                     {'name': 'piedestal', 'type': float, 'default': 0., 'desc': "Magnitude piedestal to add to measurement errors."},
-                                                                    {'name': 'grid_res', 'type': int, 'default': 25, 'desc': "Grid resolution for inverse mapping polynomial fit."}])
+                                                                    {'name': 'grid_res', 'type': int, 'default': 25, 'desc': "Grid resolution for inverse mapping polynomial fit."},
+                                                                    {'name': 'sn', 'type': bool, 'default': True, 'desc': "If true, center the transformations onto the SN. If False, center the transformations on the reference quadrant center."}])
 
 def astrometry_fit_plot(lightcurve, logger, args, op_args):
     import pickle

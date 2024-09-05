@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import pathlib
+
 from ztfsmp.pipeline_utils import run_and_log
 from ztfsmp.pipeline import register_op
 
@@ -58,6 +60,40 @@ def reference_exposure(lightcurve, logger, args, op_args):
     return True
 
 register_op('reference_exposure', reduce_op=reference_exposure, parameters=[{'name': 'min_psfstars', 'type': int, 'default': 0, 'desc': "Minimum PSF stars the reference exposure must have"}])
+
+
+def write_driverfile(lightcurve, logger, args, op_args):
+    logger.info("Writing driver file")
+    exposures = lightcurve.get_exposures(files_to_check='cat_indices.hd5')
+    reference_exposure = lightcurve.get_reference_exposure()
+
+    logger.info("Reading SN1a parameters")
+    if op_args['sn']:
+        sn_parameters = pd.read_hdf(args.lc_folder.joinpath("{}.hd5".format(lightcurve.name)), key='sn_info')
+        ra_px, dec_px = lightcurve.exposures[reference_exposure].wcs.world_to_pixel(SkyCoord(ra=sn_parameters['sn_ra'], dec=sn_parameters['sn_dec'], unit='deg'))
+
+    logger.info("Writing driver file")
+    driver_path = lightcurve.path.joinpath("smphot_driver")
+    logger.info("Writing driver file at location {}".format(driver_path))
+    with open(driver_path, 'w') as f:
+        if op_args['sn']:
+            f.write("OBJECTS\n")
+            f.write("{} {} DATE_MIN={} DATE_MAX={} NAME={} TYPE=0 BAND={}\n".format(ra_px[0],
+                                                                                    dec_px[0],
+                                                                                    sn_parameters['t_inf'].values[0],
+                                                                                    sn_parameters['t_sup'].values[0],
+                                                                                    lightcurve.name,
+                                                                                    lightcurve.filterid[1]))
+        f.write("IMAGES\n")
+        [f.write("{}\n".format(exposure.path)) for exposure in exposures if exposure.name != reference_exposure]
+        f.write("PHOREF\n")
+        f.write("{}\n".format(str(lightcurve.path.joinpath(reference_exposure))))
+        f.write("PMLIST\n")
+        f.write(str(lightcurve.path.joinpath("astrometry/pmcatalog.list")))
+
+    return True
+
+register_op('write_driverfile', reduce_op=write_driverfile, parameters={'name': 'sn', 'type': bool, 'default': True, 'desc': "A SN is expected to be processed. If not e.g. for a standard star, set to False."})
 
 
 def smphot(lightcurve, logger, args, op_args):
@@ -192,6 +228,36 @@ def smphot_stars(lightcurve, logger, args, op_args):
     cat_stars_df = cat_stars_df.iloc[cat_indices]
     logger.info("Found {} stars".format(len(cat_stars_df)))
 
+    star_list = op_args['star_list']
+    if op_args['star_list_file']:
+        df = pd.read_csv(op_args['star_list_file']).set_index('lightcurve_name')
+        if lightcurve.name in df.index:
+            star_list.append(df.loc[lightcurve.name].item())
+        del df
+
+    if len(star_list) > 0:
+        gaia_to_keep_list = []
+        gaiaid_to_keep = list(map(lambda x: int(x), star_list))
+        logger.info("Star list for which a SMP LC will be produced: {}".format(gaiaid_to_keep))
+        cat_gaia_full_df = None
+        for gaiaid in gaiaid_to_keep:
+            if gaiaid not in cat_stars_df['Source'].tolist():
+                logger.info("Could not find {} in GaiaID catalog! Maybe in the full Gaia catalog...".format(gaiaid))
+                if cat_gaia_full_df is None:
+                    cat_gaia_full_df = lightcurve.get_ext_catalog('gaia', matched=False)
+
+                if gaiaid not in cat_gaia_full_df['Source'].tolist():
+                    logger.info("Could not find {} in the full Gaia catalog either! Aborting...")
+                    return False
+
+                logger.info("Found {} in the full Gaia catalog!".format(gaiaid))
+                gaia_to_keep_list.append(cat_gaia_full_df.loc[cat_gaia_full_df['Source']==gaiaid])
+            else:
+                logger.info("Found {} in the Gaia catalog!".format(gaiaid))
+                gaia_to_keep_list.append(cat_stars_df.loc[cat_stars_df['Source']==gaiaid])
+
+        del cat_gaia_full_df
+
     # Remove stars that are outside of the reference quadrant
     logger.info("Removing stars outside of the reference quadrant")
     gaia_stars_skycoords = SkyCoord(ra=cat_stars_df['ra'], dec=cat_stars_df['dec'], unit='deg')
@@ -199,6 +265,7 @@ def smphot_stars(lightcurve, logger, args, op_args):
     gaia_stars_skycoords = gaia_stars_skycoords[inside]
     cat_stars_df = cat_stars_df.loc[inside]
     logger.info("{} stars remaining".format(len(cat_stars_df)))
+
 
     # Remove stars that are too close of each other
     logger.info("Removing stars that are too close (20 as)")
@@ -214,6 +281,13 @@ def smphot_stars(lightcurve, logger, args, op_args):
     keep_idx = list(filter(lambda x: x not in too_close_idx, range(n)))
     cat_stars_df = cat_stars_df.iloc[keep_idx]
     logger.info("{} stars remaining".format(len(cat_stars_df)))
+
+    if len(star_list) > 0:
+        for gaia_to_keep in gaia_to_keep_list:
+            if not gaia_to_keep['Source'].item() in cat_stars_df['Source'].tolist():
+                cat_stars_df = pd.concat([cat_stars_df, gaia_to_keep])
+
+    print(cat_stars_df)
 
     # Build dummy catalog with remaining Gaia stars
     logger.info("Building generic (empty) calibration catalog from Gaia stars")
@@ -303,7 +377,9 @@ def smphot_stars(lightcurve, logger, args, op_args):
 
     return True
 
-register_op('smphot_stars', reduce_op=smphot_stars, parameters=[{'name': 'stars_min_distance', 'type': float, 'default': 20., 'desc': "Minimum distance between stars for SMP selection (in arcsec)."}])
+register_op('smphot_stars', reduce_op=smphot_stars, parameters=[{'name': 'stars_min_distance', 'type': float, 'default': 20., 'desc': "Minimum distance between stars for SMP selection (in arcsec)."},
+                                                                {'name': 'star_list', 'type': list, 'desc': "GaiaID list of stars which are forced to be processed."},
+                                                                {'name': 'star_list_file', 'type': pathlib.Path, 'desc': ""}])
 
 
 def smphot_stars_plot(lightcurve, logger, args, op_args):
@@ -335,8 +411,6 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
     gaia_df = lightcurve.get_ext_catalog('gaia').reset_index().set_index('Source', drop=False).loc[stars_df.index]
     gaia_df = gaia_df[~gaia_df.index.duplicated(keep='first')]
 
-    print(stars_df)
-    print(gaia_df)
     stars_lc_outlier_df = stars_lc_df.loc[stars_lc_df['bads']]
     stars_lc_df = stars_lc_df.loc[~stars_lc_df['bads']]
 

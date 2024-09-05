@@ -58,6 +58,8 @@ class Pipeline:
 
                 if self.__ops[op_name]['parameters'][key].type is bool:
                     parameters[key] = strtobool(value.strip())
+                elif self.__ops[op_name]['parameters'][key].type is list:
+                    parameters[key] = value.strip().split(";")
                 else:
                     parameters[key] = self.__ops[op_name]['parameters'][key].type(value.strip())
 
