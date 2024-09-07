@@ -287,8 +287,6 @@ def smphot_stars(lightcurve, logger, args, op_args):
             if not gaia_to_keep['Source'].item() in cat_stars_df['Source'].tolist():
                 cat_stars_df = pd.concat([cat_stars_df, gaia_to_keep])
 
-    print(cat_stars_df)
-
     # Build dummy catalog with remaining Gaia stars
     logger.info("Building generic (empty) calibration catalog from Gaia stars")
     calib_df = pd.concat([cat_stars_df[['ra', 'dec']].reset_index(drop=True),
