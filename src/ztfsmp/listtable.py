@@ -29,8 +29,10 @@ def read_list_ext(f, delim_whitespace=True):
         splitted = splitted[1:]
 
         first = splitted[0]
+        is_negative = False
         if first[0] == '-':
             first = first[1:]
+            is_negative = True
 
         if first.isdigit():
             t = int
@@ -49,7 +51,7 @@ def read_list_ext(f, delim_whitespace=True):
 
         header[key.lower()] = values
 
-        line = f.readline()
+        line = f.readline().strip()
         curline += 1
 
     # Extract dataframe

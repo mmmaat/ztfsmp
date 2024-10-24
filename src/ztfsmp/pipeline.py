@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
+import os
 from collections.abc import Iterable
+import pathlib
 
 from ztfsmp.op_parameters import OpParameters, OpParameter, OpParameterDesc
 
@@ -52,10 +54,12 @@ class Pipeline:
                 key = key.strip()
 
                 if key not in self.__ops[op_name]['parameters'].keys():
-                    raise KeyError("\'{}\' not in parameter list! Avaieable parameters: {}".format(key, list(self.__ops[op_name]['parameters'].keys())))
+                    raise KeyError("\'{}\' not in parameter list! Available parameters: {}".format(key, list(self.__ops[op_name]['parameters'].keys())))
 
                 if self.__ops[op_name]['parameters'][key].type is bool:
                     parameters[key] = strtobool(value.strip())
+                elif self.__ops[op_name]['parameters'][key].type is list:
+                    parameters[key] = value.strip().split(";")
                 else:
                     parameters[key] = self.__ops[op_name]['parameters'][key].type(value.strip())
 
@@ -104,7 +108,10 @@ class Pipeline:
                 parameter_values = self._parse_parameters_from_str(op_name, op_parameter_str)
                 assert len(parameter_values) > 0
                 for parameter_key in parameter_values.keys():
-                    op['parameters'][parameter_key] = parameter_values[parameter_key]
+                    if self.__ops[op_name]['parameters'][parameter_key].type == pathlib.Path:
+                        op['parameters'][parameter_key] = pathlib.Path(os.path.expandvars(parameter_values[parameter_key]))
+                    else:
+                        op['parameters'][parameter_key] = parameter_values[parameter_key]
 
             self.__pipeline_desc.append(op)
 
@@ -124,6 +131,7 @@ pipeline = Pipeline()
 
 
 def register_op(name, map_op=None, reduce_op=None, plot_op=None, rm_list=None, parameters=None):
+    assert name not in list(pipeline.ops.keys()), "{} pipeline operation already registed!".format(name)
     if isinstance(parameters, dict):
         parameters = [parameters]
 

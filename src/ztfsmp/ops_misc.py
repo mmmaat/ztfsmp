@@ -683,19 +683,20 @@ def clean(lightcurve, logger, args, op_args):
 register_op('clean', reduce_op=clean, parameters={'name': 'full_clean', 'type': bool, 'default': False})
 
 
-def filter_psfstars_count(lightcurve, logger, args):
+def filter_psfstars_count(lightcurve, logger, args, op_args):
     from ztfsmp.listtable import ListTable
 
     exposures = lightcurve.get_exposures(files_to_check="makepsf.success")
     flagged = []
 
-    if not args.min_psfstars:
-        logger.info("min-psfstars not defined. Computing it from astro-degree.")
-        logger.info("astro-degree={}".format(args.astro_degree))
-        min_psfstars = (args.astro_degree+1)*(args.astro_degree+2)
-        logger.info("Minimum PSF stars={}".format(min_psfstars))
-    else:
-        min_psfstars = args.min_psfstars
+    # if not args.min_psfstars:
+    #     logger.info("min-psfstars not defined. Computing it from astro-degree.")
+    #     logger.info("astro-degree={}".format(args.astro_degree))
+    #     min_psfstars = (args.astro_degree+1)*(args.astro_degree+2)
+    #     logger.info("Minimum PSF stars={}".format(min_psfstars))
+    # else:
+    #     min_psfstars = args.min_psfstars
+    min_psfstars = op_args['min_psfstars']
 
     for exposure in exposures:
         psfstars_count = len(exposure.get_catalog("psfstars.list").df)
@@ -704,7 +705,7 @@ def filter_psfstars_count(lightcurve, logger, args):
             flagged.append(exposure.name)
 
     lightcurve.add_noprocess(flagged)
-    logger.info("{} exposures flagged has having PSF stars count < {}".format(len(flagged), args.min_psfstars))
+    logger.info("{} exposures flagged as having PSF stars count < {}".format(len(flagged), min_psfstars))
 
     return True
 
@@ -877,12 +878,256 @@ def concat_catalogs(lightcurve, logger, args, op_args):
     for ccdid in list(range(1, 17)):
         for qid in list(range(1, 5)):
             filename = lightcurve.path.joinpath("measures/measures_{}-{}-c{}-q{}.parquet".format(lightcurve.name, lightcurve.filterid, str(ccdid).zfill(2), str(qid)))
-            if not filename.exists():
-                df = _extract_quadrant(ccdid, qid)
-                if df is not None:
-                    logger.info("ccdid={}, qid={}: found {} measures".format(ccdid, qid, len(df)))
-                    df.to_parquet(filename)
+            # if not filename.exists():
+            #     df = _extract_quadrant(ccdid, qid)
+            #     if df is not None:
+            #         logger.info("ccdid={}, qid={}: found {} measures".format(ccdid, qid, len(df)))
+            #         df.to_parquet(filename)
+            df = _extract_quadrant(ccdid, qid)
+            if df is not None:
+                logger.info("ccdid={}, qid={}: found {} measures".format(ccdid, qid, len(df)))
+                df.to_parquet(filename)
 
     return True
 
 register_op('concat_catalogs', reduce_op=concat_catalogs)
+
+
+def build_psfstars_catalog(lightcurve, logger, args, op_args):
+    from croaks.match import NearestNeighAssoc
+    from croaks import DataProxy
+    from saunerie.linearmodels import LinearModel, RobustLinearSolver
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+    from ztfsmp.misc_utils import make_index_from_array
+    from ztfsmp.listtable import ListTable
+    from starflats import models, full_starflat_model
+
+    photom_df = ListTable.from_filename(lightcurve.path.joinpath("mappings/photom_ratios.ntuple")).df.set_index('expccd')
+
+    measures_df = pd.concat([pd.read_parquet(measure_path, columns=['gaia_Source', 'psf_x', 'psf_y', 'psf_flux', 'psf_eflux', 'filtercode', 'field', 'ccdid', 'qid', 'mjd', 'quadrant']) for measure_path in lightcurve.path.joinpath("measures").glob("measures_*.parquet")])
+    measures_df = measures_df.rename(columns={'gaia_Source': 'gaiaid', 'psf_x': 'x', 'psf_y': 'y', 'psf_flux': 'flux', 'psf_eflux': 'eflux'})
+
+    # Remove stars for which we only have less than N measurements
+    star_index_map, star_index = make_index_from_array(measures_df['gaiaid'].to_numpy())
+    star_mask = (np.bincount(star_index) < op_args['min_measurement'])
+    to_remove_mask = star_mask[star_index]
+    measures_df = measures_df.loc[~to_remove_mask].reset_index()
+    print("Removed {} measures".format(sum(to_remove_mask)))
+
+    # Apply flux alignement correction
+    measures_df['flux'] = measures_df['flux'].to_numpy()/photom_df.loc[measures_df['quadrant']]['alpha'].to_numpy()
+
+    # Apply starflat
+    # model = full_starflat_model.FullStarflatModel.from_config(pathlib.Path("/home/llacroix/starflat/configs/config_psf.yaml"))
+    # model.load_result("/home/llacroix/starflat/output_test/model.pickle")
+    # measures_df['flux'] = 10**(-0.4*model.apply_model(measures_df['x'], measures_df['y'], measures_df['ccdid'], measures_df['qid'], -2.5*np.log10(measures_df['flux'])))
+
+    dp = DataProxy(measures_df[['flux', 'eflux', 'gaiaid', 'mjd']].to_records(), flux='flux', eflux='eflux', gaiaid='gaiaid', mjd='mjd')
+    dp.make_index('gaiaid')
+    dp.make_index('mjd')
+
+    w = 1./np.sqrt(dp.eflux**2)
+
+    # Fit of the constant star model
+    logger.info("Building model")
+    model = LinearModel(list(range(len(dp.nt))), dp.gaiaid_index, np.ones_like(dp.gaiaid, dtype=float), name='flux')
+    solver = RobustLinearSolver(model, dp.flux, weights=w)
+    logger.info("Solving model")
+    solver.model.params.free = solver.robust_solution(local_param='flux')
+    logger.info("Done")
+
+    flux = solver.model.params.free
+
+    measures_df = measures_df.assign(res=solver.get_res(dp.flux),
+                                     bads=solver.bads)
+    measures_df = measures_df.assign(mag=-2.5*np.log10(measures_df['flux']),
+                                     emag=2.5/np.log(10)*measures_df['eflux']/measures_df['flux'],
+                                     mean_mag=-2.5*np.log10(flux[dp.gaiaid_index]))
+
+    measures_df = measures_df.assign(wres=measures_df['res']/measures_df['eflux'])
+
+    # for gaiaid in list(set(measures_df['gaiaid'])):
+    #     df = measures_df.loc[measures_df['gaiaid']==gaiaid]
+    #     plt.suptitle("{} - RMS={}".format(gaiaid, np.std(df['mag'])))
+    #     plt.plot(df['mjd'], df['mag'], '.')
+    #     plt.axhline(df.iloc[0]['mean_mag'])
+    #     plt.show()
+
+    stars_df = pd.DataFrame(data={'mag': -2.5*np.log10(flux),
+                                  'emag': 2.5/np.log(10)*np.sqrt(solver.get_cov().diagonal())/solver.model.params.free,
+                                  'chi2': np.bincount(dp.gaiaid_index[~solver.bads], weights=measures_df.loc[~solver.bads]['wres']**2)/np.bincount(dp.gaiaid_index[~solver.bads]),
+                                  'gaiaid': list(dp.gaiaid_map.keys())})
+
+    rms_flux = np.sqrt(np.bincount(dp.gaiaid_index[~solver.bads], weights=dp.flux[~solver.bads]**2)/np.bincount(dp.gaiaid_index[~solver.bads])-(np.bincount(dp.gaiaid_index[~solver.bads], weights=dp.flux[~solver.bads])/np.bincount(dp.gaiaid_index[~solver.bads]))**2)
+    # rms_mag = np.sqrt(np.bincount(dp.gaiaid_index[~solver.bads], weights=measures_df.loc[~solver.bads]['mag']**2)/np.bincount(dp.gaiaid_index[~solver.bads])-(np.bincount(dp.gaiaid_index[~solver.bads], weights=measures_df[~solver.bads]['mag'])/np.bincount(dp.gaiaid_index[~solver.bads]))**2)
+    stars_df = stars_df.assign(rms_mag=2.5/np.log(10)*rms_flux/solver.model.params.free)
+
+    gaia_df = lightcurve.get_ext_catalog('gaia').drop_duplicates(subset='Source').set_index('Source', drop=True)
+    gaia_df = gaia_df.loc[stars_df['gaiaid']]
+
+    stars_df = stars_df.assign(Gmag=gaia_df['Gmag'].tolist(),
+                               eGmag=gaia_df['e_Gmag'].tolist(),
+                               color=gaia_df['BP-RP'].tolist())
+
+    stars_df = stars_df.set_index('gaiaid')
+
+    stars_df.to_parquet(lightcurve.path.joinpath("psfstars.parquet"))
+
+
+    import matplotlib.pyplot as plt
+    from saunerie.plottools import binplot
+
+    plt.subplots(nrows=2, ncols=1, figsize=(10., 4.), sharex=True, gridspec_kw={'hspace': 0.})
+    plt.subplot(2, 1, 1)
+    mag_bins, rms_bins, err_bins = binplot(stars_df['Gmag'].to_numpy(), stars_df['rms_mag'].to_numpy(), bins=np.linspace(15., 21., 10), robust=True, scale=False)
+    plt.grid()
+    plt.subplot(2, 1, 2)
+    plt.plot(mag_bins, rms_bins)
+    plt.grid()
+    plt.xlabel("$m_G$ [AB mag]")
+    plt.show()
+
+    print(rms_bins)
+
+register_op('build_psfstars_catalog', reduce_op=build_psfstars_catalog, parameters=[{'name': 'min_measurement', 'type': int, 'default': 5, 'desc': ""}])
+
+
+def plot_star_lightcurves(lightcurve, logger, args, op_args):
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from ztfsmp.listtable import ListTable
+
+    lightcurve.path.joinpath("stars_lc").mkdir(exist_ok=True)
+
+    psfstars_df = pd.read_parquet(lightcurve.path.joinpath("psfstars.parquet"))
+    measures_df = pd.concat([pd.read_parquet(measure_path, columns=['gaia_Source', 'gaia_Gmag', 'psf_x', 'psf_y', 'psf_flux', 'psf_eflux', 'filtercode', 'field', 'ccdid', 'qid', 'mjd', 'quadrant']) for measure_path in lightcurve.path.joinpath("measures").glob("measures_*.parquet")])
+    measures_df = measures_df.rename(columns={'gaia_Source': 'gaiaid', 'psf_x': 'x', 'psf_y': 'y', 'psf_flux': 'flux', 'psf_eflux': 'eflux', 'gaia_Gmag': 'Gmag'})
+    photom_df = ListTable.from_filename(lightcurve.path.joinpath("mappings/photom_ratios.ntuple")).df.set_index('expccd')
+
+    measures_df['flux'] = measures_df['flux'].to_numpy()/photom_df.loc[measures_df['quadrant']]['alpha'].to_numpy()
+
+    measures_df = measures_df.assign(mag=-2.5*np.log10(measures_df['flux']),
+                                     emag=2.5/np.log(10)*measures_df['eflux']/measures_df['flux'])
+    smp_lc_df = ListTable.from_filename(lightcurve.smphot_stars_path.joinpath("smphot_stars_cat.list"), delim_whitespace=False).df
+
+    smp_lc_df = smp_lc_df.dropna(subset='error')
+    smp_lc_df = smp_lc_df.loc[smp_lc_df['error']>0.]
+    smp_lc_df = smp_lc_df.loc[smp_lc_df['flux']>0.]
+    smp_lc_df = smp_lc_df.loc[smp_lc_df['flux']<=1e6]
+    # Retrieve matching Gaia catalog to taf fitted constant stars
+    gaia_df = lightcurve.get_ext_catalog('gaia', matched=False).drop_duplicates(subset='Source').set_index('Source', drop=True)
+    with open(lightcurve.smphot_stars_path.joinpath("stars_gaiaid.txt"), 'r') as f:
+        gaiaids = list(map(lambda x: int(x.strip()), f.readlines()))
+
+    gaia_df = gaia_df.loc[gaiaids]
+    smp_lc_df = smp_lc_df.assign(gaiaid=gaia_df.iloc[smp_lc_df['star']].index.tolist())
+    smp_lc_df = smp_lc_df.assign(mag=-2.5*np.log10(smp_lc_df['flux']),
+                                 emag=2.5/np.log(10)*smp_lc_df['error']/smp_lc_df['flux'])
+    smpstars_df = pd.read_parquet(lightcurve.smphot_stars_path.joinpath("constant_stars.parquet"))
+
+    shared_gaiaids = list(filter(lambda x: x in smpstars_df.index.tolist() and x in psfstars_df.index.tolist(),
+                                 list(set(sum([smpstars_df.index.tolist(), psfstars_df.index.tolist()], [])))))
+    psfstars_df = psfstars_df.loc[shared_gaiaids]
+    smpstars_df = smpstars_df.loc[shared_gaiaids]
+
+    for gaiaid, psfstar in psfstars_df.iterrows():
+        # Plot SMP lightcurve
+        fig, (ax_top, ax_bottom) = plt.subplots(nrows=2, ncols=1, figsize=(12., 7.), sharex=True, layout='constrained')
+        plt.suptitle("{} \u2014 $G$={:.2f} mag".format(gaiaid, psfstar['Gmag']))
+
+        smpstar = smpstars_df.loc[gaiaid]
+        m = (smp_lc_df['gaiaid']==gaiaid)
+        mjdmin, mjdmax = smp_lc_df.loc[m]['mjd'].min()-20., smp_lc_df.loc[m]['mjd'].max()+20.
+        ax_bottom.set_xlim(mjdmin, mjdmax)
+        ax_bottom.errorbar(smp_lc_df.loc[m]['mjd'], smp_lc_df.loc[m]['mag'], yerr=smp_lc_df.loc[m]['emag'], fmt='.')
+        ax_bottom.grid()
+        ax_bottom.axhline(smpstar['mag'])
+        ax_bottom.set_ylabel("SMP \u2014 $m$ [mag]", size='xx-large')
+        ax_bottom.fill_between([mjdmin, mjdmax],
+                               [smpstar['mag']-2*smpstar['rms_mag'], smpstar['mag']-2*smpstar['rms_mag']],
+                               [smpstar['mag']+2*smpstar['rms_mag'], smpstar['mag']+2*smpstar['rms_mag']],
+                               color='lavender')
+        ax_bottom.fill_between([mjdmin, mjdmax],
+                               [smpstar['mag']-smpstar['rms_mag'], smpstar['mag']-smpstar['rms_mag']],
+                               [smpstar['mag']+smpstar['rms_mag'], smpstar['mag']+smpstar['rms_mag']],
+                               color='xkcd:sky blue')
+        ax_bottom.text(0.7, 0.9, "$m$={:.2e}mag\nRMS={:.2e}mag".format(smpstar['mag'], smpstar['rms_mag']),
+                       horizontalalignment='left', verticalalignment='top', transform=ax_bottom.transAxes,
+                       size='xx-large')
+
+
+        # Plot PSF lightcurve
+        m = (measures_df['gaiaid'] == gaiaid)
+        ax_top.errorbar(measures_df.loc[m]['mjd'], measures_df.loc[m]['mag'], yerr=measures_df.loc[m]['emag'], fmt='.')
+        ax_top.fill_between([mjdmin, mjdmax],
+                               [psfstar['mag']-2*psfstar['rms_mag'], psfstar['mag']-2*psfstar['rms_mag']],
+                               [psfstar['mag']+2*psfstar['rms_mag'], psfstar['mag']+2*psfstar['rms_mag']],
+                               color='lavender')
+        ax_top.fill_between([mjdmin, mjdmax],
+                               [psfstar['mag']-psfstar['rms_mag'], psfstar['mag']-psfstar['rms_mag']],
+                               [psfstar['mag']+psfstar['rms_mag'], psfstar['mag']+psfstar['rms_mag']],
+                               color='xkcd:sky blue')
+        ax_top.axhline(psfstar['mag'])
+        ax_top.set_ylabel("PSF \u2014 $m$ [mag]", size='xx-large')
+        ax_top.text(0.7, 0.9, "$m$={:.2e}mag\nRMS={:.2e}mag".format(psfstar['mag'], psfstar['rms_mag']),
+                    horizontalalignment='left', verticalalignment='top', transform=ax_top.transAxes,
+                    size='xx-large')
+        ax_top.grid()
+
+        ax_bottom.set_xlabel("MJD", size='xx-large')
+
+        plt.savefig(lightcurve.path.joinpath("stars_lc/{}.png".format(gaiaid)))
+        plt.close()
+
+    return True
+
+register_op('plot_star_lightcurves', reduce_op=plot_star_lightcurves, parameters=[])
+
+
+def study_repeatability(lightcurve, logger, args, op_args):
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from saunerie.plottools import binplot
+
+    psfstars_df = pd.read_parquet(lightcurve.path.joinpath("psfstars.parquet"))
+    smpstars_df = pd.read_parquet(lightcurve.path.joinpath("smphot_stars/constant_stars.parquet"))
+    gaia_df = lightcurve.get_ext_catalog('gaia').drop_duplicates(subset='Source').set_index('Source', drop=True)
+
+
+    plt.subplots(nrows=2, ncols=1, figsize=(10., 6.), sharex=True, gridspec_kw={'hspace': 0.})
+    plt.subplot(2, 1, 1)
+    gmag_binned, psf_chi2_binned, epsf_chi2_binned = binplot(gaia_df.loc[psfstars_df.index]['Gmag'].to_numpy(), psfstars_df['chi2'].to_numpy(), robust=True, data=False, scale=False)
+    plt.plot(gaia_df.loc[psfstars_df.index]['Gmag'], psfstars_df['chi2'], '.', zorder=-1)
+    # plt.plot(gmag_binned, psf_chi2_binned)
+    plt.ylim(0., 4.)
+    plt.axhline(1.)
+    plt.ylabel("$\chi^2$/star - PSF")
+    plt.grid()
+
+    plt.subplot(2, 1, 2)
+    gmag_binned, smp_chi2_binned, esmp_chi2_binned = binplot(gaia_df.loc[smpstars_df.index]['Gmag'].to_numpy(), smpstars_df['chi2'].to_numpy(), robust=True, data=False, scale=False)
+    plt.plot(gaia_df.loc[smpstars_df.index]['Gmag'], smpstars_df['chi2'], '.', zorder=-1)
+    plt.ylim(0., 4.)
+    plt.axhline(1.)
+    plt.ylabel("$\chi^2$/star - SMP")
+    plt.grid()
+
+    plt.show()
+
+    plt.plot(gaia_df.loc[smpstars_df.index]['Gmag'], smpstars_df['chi2'], '.')
+    plt.show()
+
+    plt.subplots(figsize=(10., 4.))
+    plt.plot(gaia_df.loc[psfstars_df.index]['Gmag'], 1000.*psfstars_df['rms_mag'], '.', label="PSF stars")
+    plt.plot(gaia_df.loc[smpstars_df.index]['Gmag'], 1000.*smpstars_df['rms_mag'], '.', label="SMP stars")
+    plt.xlabel("$m_G$ [AB mag]")
+    plt.ylabel("RMS [mmag]")
+    plt.ylim(0., 1000.*0.5)
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+register_op('study_repeatability', reduce_op=study_repeatability)

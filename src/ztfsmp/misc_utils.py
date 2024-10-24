@@ -145,3 +145,10 @@ def poly2d_to_file(poly2d, quadrant_set, outdir):
                     p -= 1
                     q += 1
             f.write('\n')
+
+
+def make_index_from_array(array):
+    s = np.array(list(set(array)))
+    m = dict(list(zip(s, list(range(len(s))))))
+    indices = np.fromiter((m[e] for e in array), 'int')
+    return m, indices

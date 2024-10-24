@@ -29,6 +29,29 @@ def star_averager(lightcurve, logger, args, op_args):
     smphot_lc_df = smphot_lc_df.loc[smphot_lc_df['flux']<=1e6]
     logger.info("Sanitizing measurements, down to {} measurements".format(len(smphot_lc_df)))
 
+    if op_args['snr_cut']:
+        logger.info("Removing measurements with SNR lower than {}".format(op_args['snr_cut']))
+        smphot_lc_df = smphot_lc_df.loc[smphot_lc_df['flux']/smphot_lc_df['error']>=op_args['snr_cut']]
+
+    # Retrieve matching Gaia catalog to taf fitted constant stars
+    gaia_df = lightcurve.get_ext_catalog('gaia', matched=False).drop_duplicates(subset='Source').set_index('Source', drop=True)
+    with open(lightcurve.smphot_stars_path.joinpath("stars_gaiaid.txt"), 'r') as f:
+        gaiaids = list(map(lambda x: int(x.strip()), f.readlines()))
+
+    gaia_df = gaia_df.loc[gaiaids]
+    smphot_lc_df = smphot_lc_df.assign(gaiaid=gaia_df.iloc[smphot_lc_df['star']].index.tolist())
+
+    if op_args['use_psf_lc_sampling']:
+        logger.info("Removing SMP measurements which have no PSF counterparts.")
+        to_keep = []
+        for exposure in lightcurve.get_exposures(files_to_check=['cat_indices.hd5']):
+            exp_cat_df = exposure.get_matched_ext_catalog('gaia')
+            to_keep.append([(exposure.name, gaiaid) for gaiaid in exp_cat_df['Source'].tolist()])
+
+        to_keep = list(sum(to_keep, []))
+        smphot_lc_df = smphot_lc_df.set_index(['name', 'gaiaid']).filter(items=to_keep, axis='index')
+
+
     # Create dataproxy for the fit
     dp = DataProxy(smphot_lc_df[['flux', 'error', 'star', 'mjd']].to_records(), flux='flux', error='error', star='star', mjd='mjd')
     dp.make_index('star')
@@ -36,12 +59,7 @@ def star_averager(lightcurve, logger, args, op_args):
 
     w = 1./np.sqrt(dp.error**2+op_args['piedestal']**2)
 
-    # Retrieve matching Gaia catalog to taf fitted constant stars
-    gaia_df = lightcurve.get_ext_catalog('gaia').drop_duplicates(subset='Source').set_index('Source', drop=True)
-    with open(lightcurve.smphot_stars_path.joinpath("stars_gaiaid.txt"), 'r') as f:
-        gaiaids = list(map(lambda x: int(x.strip()), f.readlines()))
 
-    gaia_df = gaia_df.loc[gaiaids]
 
     # Fit of the constant star model
     logger.info("Building model")
@@ -94,7 +112,9 @@ def star_averager(lightcurve, logger, args, op_args):
 
     return True
 
-register_op('star_averager', reduce_op=star_averager, parameters=[{'name': 'piedestal', 'type': float, 'default': 0., 'desc': "Magnitude piedestal."}])
+register_op('star_averager', reduce_op=star_averager, parameters=[{'name': 'piedestal', 'type': float, 'default': 0., 'desc': "Magnitude piedestal."},
+                                                                  {'name': 'use_psf_lc_sampling', 'type': bool, 'default': False, 'desc': ""},
+                                                                  {'name': 'snr_cut', 'type': float, 'default': None, 'desc': ""}])
 
 
 def calib(lightcurve, logger, args, op_args):

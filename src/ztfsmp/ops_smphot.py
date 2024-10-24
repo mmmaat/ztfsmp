@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import pathlib
+
 from ztfsmp.pipeline_utils import run_and_log
 from ztfsmp.pipeline import register_op
 
@@ -16,7 +18,7 @@ def reference_exposure(lightcurve, logger, args, op_args):
 
     # Determination of reference exposure
     logger.info("Determining best seeing quadrant...")
-    exposures = lightcurve.get_exposures(files_to_check="psfstars.list")
+    exposures = lightcurve.get_exposures(files_to_check="cat_indices.hd5")
     seeings = dict([(exposure.name, (exposure.exposure_header['seeing'], exposure.field)) for exposure in exposures])
     seeings_df = pd.DataFrame({'seeing': list(map(lambda x: x.exposure_header['seeing'], exposures)),
                                'fieldid': list(map(lambda x: x.field, exposures)),
@@ -58,6 +60,40 @@ def reference_exposure(lightcurve, logger, args, op_args):
     return True
 
 register_op('reference_exposure', reduce_op=reference_exposure, parameters=[{'name': 'min_psfstars', 'type': int, 'default': 0, 'desc': "Minimum PSF stars the reference exposure must have"}])
+
+
+def write_driverfile(lightcurve, logger, args, op_args):
+    logger.info("Writing driver file")
+    exposures = lightcurve.get_exposures(files_to_check='cat_indices.hd5')
+    reference_exposure = lightcurve.get_reference_exposure()
+
+    logger.info("Reading SN1a parameters")
+    if op_args['sn']:
+        sn_parameters = pd.read_hdf(args.lc_folder.joinpath("{}.hd5".format(lightcurve.name)), key='sn_info')
+        ra_px, dec_px = lightcurve.exposures[reference_exposure].wcs.world_to_pixel(SkyCoord(ra=sn_parameters['sn_ra'], dec=sn_parameters['sn_dec'], unit='deg'))
+
+    logger.info("Writing driver file")
+    driver_path = lightcurve.path.joinpath("smphot_driver")
+    logger.info("Writing driver file at location {}".format(driver_path))
+    with open(driver_path, 'w') as f:
+        if op_args['sn']:
+            f.write("OBJECTS\n")
+            f.write("{} {} DATE_MIN={} DATE_MAX={} NAME={} TYPE=0 BAND={}\n".format(ra_px[0],
+                                                                                    dec_px[0],
+                                                                                    sn_parameters['t_inf'].values[0],
+                                                                                    sn_parameters['t_sup'].values[0],
+                                                                                    lightcurve.name,
+                                                                                    lightcurve.filterid[1]))
+        f.write("IMAGES\n")
+        [f.write("{}\n".format(exposure.path)) for exposure in exposures if exposure.name != reference_exposure]
+        f.write("PHOREF\n")
+        f.write("{}\n".format(str(lightcurve.path.joinpath(reference_exposure))))
+        f.write("PMLIST\n")
+        f.write(str(lightcurve.path.joinpath("astrometry/pmcatalog.list")))
+
+    return True
+
+register_op('write_driverfile', reduce_op=write_driverfile, parameters={'name': 'sn', 'type': bool, 'default': True, 'desc': "A SN is expected to be processed. If not e.g. for a standard star, set to False."})
 
 
 def smphot(lightcurve, logger, args, op_args):
@@ -102,25 +138,26 @@ def smphot(lightcurve, logger, args, op_args):
 
     returncode = run_and_log(["mklc", "-t", lightcurve.mappings_path, "-O", lightcurve.smphot_path, "-v", lightcurve.driver_path], logger=logger)
 
-    logger.info("Deleting unuseful *.fits files...")
-    to_delete_list = list(lightcurve.smphot_path.glob("*.fits"))
-    if returncode == 0:
-        sn_parameters = pd.read_hdf(args.lc_folder.joinpath("{}.hd5".format(lightcurve.name)), key='sn_info')
-        fit_df = ListTable.from_filename(lightcurve.smphot_path.joinpath("lc2fit.dat")).df
-        t0 = sn_parameters['t0mjd'].item()
-        t0_idx = np.argmin(np.abs(fit_df['Date']-t0))
-        t0_exposure = fit_df.iloc[t0_idx]['name']
-        logger.info("Keeping t0 image {}".format(t0_exposure))
-        to_delete_list.remove(lightcurve.smphot_path.joinpath(t0_exposure+".fits"))
-        logger.info("Keeping galaxy model {}".format("test"))
-        to_delete_list.remove(lightcurve.smphot_path.joinpath("galaxy_sn.fits"))
+    if not op_args['keep_intermediates']:
+        logger.info("Deleting unuseful *.fits files...")
+        to_delete_list = list(lightcurve.smphot_path.glob("*.fits"))
+        if returncode == 0:
+            sn_parameters = pd.read_hdf(args.lc_folder.joinpath("{}.hd5".format(lightcurve.name)), key='sn_info')
+            fit_df = ListTable.from_filename(lightcurve.smphot_path.joinpath("lc2fit.dat")).df
+            t0 = sn_parameters['t0mjd'].item()
+            t0_idx = np.argmin(np.abs(fit_df['Date']-t0))
+            t0_exposure = fit_df.iloc[t0_idx]['name']
+            logger.info("Keeping t0 image {}".format(t0_exposure))
+            to_delete_list.remove(lightcurve.smphot_path.joinpath(t0_exposure+".fits"))
+            logger.info("Keeping galaxy model {}".format("test"))
+            to_delete_list.remove(lightcurve.smphot_path.joinpath("galaxy_sn.fits"))
 
-    for to_delete in to_delete_list:
-        to_delete.unlink()
+        for to_delete in to_delete_list:
+            to_delete.unlink()
 
     return (returncode == 0)
 
-register_op('smphot', reduce_op=smphot)
+register_op('smphot', reduce_op=smphot, parameters={'name': 'keep_intermediates', 'type': bool, 'default': False, 'desc': ""})
 
 
 def smphot_plot(lightcurve, logger, args, op_args):
@@ -191,6 +228,36 @@ def smphot_stars(lightcurve, logger, args, op_args):
     cat_stars_df = cat_stars_df.iloc[cat_indices]
     logger.info("Found {} stars".format(len(cat_stars_df)))
 
+    star_list = op_args['star_list']
+    if op_args['star_list_file']:
+        df = pd.read_csv(op_args['star_list_file']).set_index('lightcurve_name')
+        if lightcurve.name in df.index:
+            star_list.append(df.loc[lightcurve.name].item())
+        del df
+
+    if len(star_list) > 0:
+        gaia_to_keep_list = []
+        gaiaid_to_keep = list(map(lambda x: int(x), star_list))
+        logger.info("Star list for which a SMP LC will be produced: {}".format(gaiaid_to_keep))
+        cat_gaia_full_df = None
+        for gaiaid in gaiaid_to_keep:
+            if gaiaid not in cat_stars_df['Source'].tolist():
+                logger.info("Could not find {} in GaiaID catalog! Maybe in the full Gaia catalog...".format(gaiaid))
+                if cat_gaia_full_df is None:
+                    cat_gaia_full_df = lightcurve.get_ext_catalog('gaia', matched=False)
+
+                if gaiaid not in cat_gaia_full_df['Source'].tolist():
+                    logger.info("Could not find {} in the full Gaia catalog either! Aborting...")
+                    return False
+
+                logger.info("Found {} in the full Gaia catalog!".format(gaiaid))
+                gaia_to_keep_list.append(cat_gaia_full_df.loc[cat_gaia_full_df['Source']==gaiaid])
+            else:
+                logger.info("Found {} in the Gaia catalog!".format(gaiaid))
+                gaia_to_keep_list.append(cat_stars_df.loc[cat_stars_df['Source']==gaiaid])
+
+        del cat_gaia_full_df
+
     # Remove stars that are outside of the reference quadrant
     logger.info("Removing stars outside of the reference quadrant")
     gaia_stars_skycoords = SkyCoord(ra=cat_stars_df['ra'], dec=cat_stars_df['dec'], unit='deg')
@@ -198,6 +265,7 @@ def smphot_stars(lightcurve, logger, args, op_args):
     gaia_stars_skycoords = gaia_stars_skycoords[inside]
     cat_stars_df = cat_stars_df.loc[inside]
     logger.info("{} stars remaining".format(len(cat_stars_df)))
+
 
     # Remove stars that are too close of each other
     logger.info("Removing stars that are too close (20 as)")
@@ -213,6 +281,11 @@ def smphot_stars(lightcurve, logger, args, op_args):
     keep_idx = list(filter(lambda x: x not in too_close_idx, range(n)))
     cat_stars_df = cat_stars_df.iloc[keep_idx]
     logger.info("{} stars remaining".format(len(cat_stars_df)))
+
+    if len(star_list) > 0:
+        for gaia_to_keep in gaia_to_keep_list:
+            if not gaia_to_keep['Source'].item() in cat_stars_df['Source'].tolist():
+                cat_stars_df = pd.concat([cat_stars_df, gaia_to_keep])
 
     # Build dummy catalog with remaining Gaia stars
     logger.info("Building generic (empty) calibration catalog from Gaia stars")
@@ -273,7 +346,6 @@ def smphot_stars(lightcurve, logger, args, op_args):
 
         calib_cat_table = ListTable(calib_cat_header, calib_cat_df)
         calib_cat_table.write_to(smphot_stars_cat_path)
-        print(smphot_stars_cat_path.with_suffix(".csv"))
         calib_cat_table.write_to_csv(smphot_stars_cat_path.with_suffix(".csv"))
         logger.info("Done")
 
@@ -281,6 +353,10 @@ def smphot_stars(lightcurve, logger, args, op_args):
         to_delete_list = list(lightcurve.smphot_stars_path.glob("mklc_*/*.fits"))
         for to_delete in to_delete_list:
             to_delete.unlink()
+
+        if len(calib_cat_df) == 0:
+            logger.error("Star SMP failed! (no output stars)")
+            return False
 
     else:
         # Run on a single worker
@@ -292,9 +368,16 @@ def smphot_stars(lightcurve, logger, args, op_args):
         for to_delete in to_delete_list:
             to_delete.unlink()
 
+        df = ListTable.from_filename(smphot_stars_cat_path)
+        if len(df) == 0:
+            logger.error("Star SMP failed! (no output stars)")
+            return False
+
     return True
 
-register_op('smphot_stars', reduce_op=smphot_stars, parameters=[{'name': 'stars_min_distance', 'type': float, 'default': 20., 'desc': "Minimum distance between stars for SMP selection (in arcsec)."}])
+register_op('smphot_stars', reduce_op=smphot_stars, parameters=[{'name': 'stars_min_distance', 'type': float, 'default': 20., 'desc': "Minimum distance between stars for SMP selection (in arcsec)."},
+                                                                {'name': 'star_list', 'type': list, 'desc': "GaiaID list of stars which are forced to be processed."},
+                                                                {'name': 'star_list_file', 'type': pathlib.Path, 'desc': ""}])
 
 
 def smphot_stars_plot(lightcurve, logger, args, op_args):
@@ -324,20 +407,19 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
     stars_lc_df = pd.read_parquet(lightcurve.smphot_stars_path.joinpath("stars_lightcurves.parquet"))
     stars_df = pd.read_parquet(lightcurve.smphot_stars_path.joinpath("constant_stars.parquet"))
     gaia_df = lightcurve.get_ext_catalog('gaia').reset_index().set_index('Source', drop=False).loc[stars_df.index]
-
-    print(stars_df)
+    gaia_df = gaia_df[~gaia_df.index.duplicated(keep='first')]
 
     stars_lc_outlier_df = stars_lc_df.loc[stars_lc_df['bads']]
     stars_lc_df = stars_lc_df.loc[~stars_lc_df['bads']]
 
     # Compare fitted star magnitude to catalog
     plt.subplots(figsize=(5., 5.))
-    plt.suptitle("Fitted star magnitude vs external catalog ({})".format(args.photom_cat))
+    plt.suptitle("Fitted star magnitude vs external catalog ({})".format(op_args['photom_cat']))
     plt.scatter(stars_df['mag'].to_numpy(), gaia_df['Gmag'].to_numpy(), c=gaia_df['BP-RP'].to_numpy(), s=10)
     plt.xlabel("$m$ [mag]")
-    plt.ylabel("$m_\\mathrm{{{}}}$ [mag]".format(args.photom_cat))
+    plt.ylabel("$m_\\mathrm{{{}}}$ [mag]".format(op_args['photom_cat']))
     cbar = plt.colorbar()
-    cbar.set_label("$c_\mathrm{{{}}}$ [mag]".format(args.photom_cat))
+    cbar.set_label("$c_\mathrm{{{}}}$ [mag]".format(op_args['photom_cat']))
     plt.grid()
     plt.savefig(smphot_stars_plot_output.joinpath("mag_ext_cat.png"), dpi=300.)
     plt.close()
@@ -349,7 +431,7 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
     plt.axhline(0.01, ls='-.', color='black', label="1%")
     plt.axhline(0.02, ls='--', color='black', label="2%")
     plt.grid()
-    plt.xlabel("$m_\mathrm{{{}}}$ [AB mag]".format(args.photom_cat))
+    plt.xlabel("$m_\mathrm{{{}}}$ [AB mag]".format(op_args['photom_cat']))
     plt.ylabel("$\sigma_\hat{m}$ [mag]")
     plt.legend()
     plt.savefig(smphot_stars_plot_output.joinpath("repeatability_mag.png"), dpi=300.)
@@ -362,7 +444,7 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
     plt.axhline(0.01, ls='-.', color='black', label="1%")
     plt.axhline(0.02, ls='--', color='black', label="2%")
     plt.grid()
-    plt.xlabel("$m_\mathrm{{{}}}$ [AB mag]".format(args.photom_cat))
+    plt.xlabel("$m_\mathrm{{{}}}$ [AB mag]".format(op_args['photom_cat']))
     plt.ylabel("$\sigma_\hat{m}$ [mag]")
     plt.legend()
     plt.ylim(0., 0.05)
@@ -557,7 +639,7 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
         print("Star n°{}, G={}, m={}, sigma_m={}".format(star_index, cat_mag, m, em))
 
         fig = plt.subplots(ncols=2, nrows=1, figsize=(12., 4.), gridspec_kw={'width_ratios': [5, 1], 'wspace': 0, 'hspace': 0}, sharey=True)
-        plt.suptitle("Star {} - $m_\mathrm{{{}}}$={} [AB mag]\n$m={:.4f}$ [mag], $\\sigma_m={:.4f}$ [mag]".format(star_index, args.photom_cat, cat_mag, m, em))
+        plt.suptitle("Star {} - $m_\mathrm{{{}}}$={} [AB mag]\n$m={:.4f}$ [mag], $\\sigma_m={:.4f}$ [mag]".format(star_index, op_args['photom_cat'], cat_mag, m, em))
         ax = plt.subplot(1, 2, 1)
         plt.xlim(mjd_min, mjd_max)
         ax.tick_params(which='both', direction='in')
@@ -586,13 +668,15 @@ def smphot_stars_plot(lightcurve, logger, args, op_args):
 
     return True
 
-register_op('smphot_stars_plot', reduce_op=smphot_stars_plot)
+register_op('smphot_stars_plot', reduce_op=smphot_stars_plot, parameters={'name': 'photom_cat', 'type': str, 'default': 'gaia', 'desc': ""})
 
-def smphot_flux_bias(lightcurve, logger, args):
+
+def smphot_flux_bias(lightcurve, logger, args, op_args):
     import pickle
     import numpy as np
     import pandas as pd
-    from utils import ListTable, match_pixel_space
+    from ztfsmp.misc_utils import match_pixel_space
+    from ztfsmp.listtable import ListTable
     from croaks.match import NearestNeighAssoc
     import matplotlib.pyplot as plt
     import copy
@@ -604,9 +688,9 @@ def smphot_flux_bias(lightcurve, logger, args):
         tp2px_model = astro_models['tp2px']
         astro_dp = astro_models['dp']
 
-
-    smp_stars_df = pd.read_parquet(lightcurve.smphot_stars_path.joinpath("constant_stars.parquet")).dropna(subset=['ra', 'dec'])
-    plt.plot(smp_stars_df['m'].to_numpy(), smp_stars_df['cat_mag'], '.')
+    smp_stars_df = pd.read_parquet(lightcurve.smphot_stars_path.joinpath("constant_stars.parquet"))
+    print(smp_stars_df)
+    plt.plot(smp_stars_df['mag'].to_numpy(), smp_stars_df['cat_mag'], '.')
     plt.show()
     tp2px_residuals = tp2px_model.residuals(np.array([astro_dp.tpx, astro_dp.tpy]), np.array([astro_dp.x, astro_dp.y]), np.array([astro_dp.pmtpx, astro_dp.pmtpy]), astro_dp.mjd, exposure_indices=astro_dp.exposure_index)
     astro_stars = {}
@@ -717,4 +801,4 @@ def smphot_flux_bias(lightcurve, logger, args):
     plt.savefig(lightcurve.smphot_stars_path.joinpath("astro_smp_flux_bias.png"), dpi=150.)
     plt.close()
 
-register_op('smphot_stars_plot', reduce_op=smphot_stars_plot)
+register_op('smphot_flux_bias', reduce_op=smphot_flux_bias)

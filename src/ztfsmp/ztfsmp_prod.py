@@ -120,6 +120,7 @@ def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_
 
     # Submit lightcurve jobs
     for batch in batches:
+        print(batch)
         batch_name = batch.name.split(".")[0]
 
         # If lightcurve is already running, do not submit it again
@@ -143,7 +144,7 @@ def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_
                "-A", "ztf",
                "-L", "sps",
                "--mem={}G".format(gb_per_task*ntasks),
-               "-t", "5-0",
+               "-t", "7-0",
                batch]
 
         returncode = run_and_log(cmd, logger)
