@@ -207,6 +207,7 @@ def smphot_stars(lightcurve, logger, args, op_args):
     from astropy.coordinates import SkyCoord
     import astropy.units as u
     from scipy.sparse import dok_matrix
+    from ztfsmp.ext_cat_utils import gaia_edr3_refmjd
 
     from ztfsmp.listtable import ListTable
     from ztfsmp.misc_utils import contained_in_exposure, write_ds9_reg_circles
@@ -214,10 +215,15 @@ def smphot_stars(lightcurve, logger, args, op_args):
     lightcurve.smphot_stars_path.mkdir(exist_ok=True)
 
     ref_exposure = lightcurve.exposures[lightcurve.get_reference_exposure()]
+    ref_mjd = ref_exposure.mjd
 
     # First list all Gaia stars for wich there are measurements
     logger.info("Retrieving all Gaia stars for which there are measurements")
-    cat_stars_df = lightcurve.get_ext_catalog('gaia', matched=True)
+    cat_stars_df = lightcurve.get_ext_catalog('gaia', matched=True).drop(columns=['ra', 'dec']).rename(columns={'RA_ICRS': 'ra', 'DE_ICRS': 'dec'})
+
+    # Proper motion correction in the reference frame
+    cat_stars_df = cat_stars_df.assign(ra=cat_stars_df['ra']+(ref_mjd-gaia_edr3_refmjd)*cat_stars_df['pmRA'],
+                                       dec=cat_stars_df['dec']+(ref_mjd-gaia_edr3_refmjd)*cat_stars_df['pmDE'])
     cat_indices = []
     for exposure in lightcurve.get_exposures(files_to_check="cat_indices.hd5"):
         ext_cat_inside = exposure.get_catalog("cat_indices.hd5", key='ext_cat_inside')
@@ -266,6 +272,8 @@ def smphot_stars(lightcurve, logger, args, op_args):
     cat_stars_df = cat_stars_df.loc[inside]
     logger.info("{} stars remaining".format(len(cat_stars_df)))
 
+    # The upper operations are stupid, we could simply load Gaia stars from the reference exposure directly,
+    # skipping all the rejections etc
 
     # Remove stars that are too close of each other
     logger.info("Removing stars that are too close (20 as)")
@@ -298,7 +306,6 @@ def smphot_stars(lightcurve, logger, args, op_args):
                                                   'magi': np.zeros(len(cat_stars_df)),
                                                   'emagi': np.zeros(len(cat_stars_df))})], axis='columns').rename(columns={'Source': 'gaiaid'})
 
-    calib_df = calib_df
     # Output gaiaid list of calibration stars
     with open(lightcurve.smphot_stars_path.joinpath("stars_gaiaid.txt"), 'w') as f:
         for gaiaid in cat_stars_df['Source']:

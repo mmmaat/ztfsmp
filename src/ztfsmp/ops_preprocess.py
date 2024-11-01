@@ -38,7 +38,6 @@ def mkcat2(exposure, logger, args, op_args):
     import matplotlib.pyplot as plt
 
     from ztfsmp.misc_utils import contained_in_exposure, sc_array, match_pixel_space
-    from ztfsmp.ext_cat_utils import j2000mjd
 
     run_and_log(["mkcat2", exposure.path, "-o"], logger)
 
@@ -50,16 +49,16 @@ def mkcat2(exposure, logger, args, op_args):
         logger.info("Using Gaia catalog to identify stars")
         aperse_cat = exposure.get_catalog("aperse.list")
         standalone_stars_cat = exposure.get_catalog("standalone_stars.list")
-        gaia_stars_df = exposure.lightcurve.get_ext_catalog('gaia', matched=False)[['Gmag', 'ra', 'dec', 'pmRA', 'pmDE']].dropna()
+        gaia_stars_df = exposure.lightcurve.get_ext_catalog('gaia', matched=False)[['Gmag', 'RA_ICRS', 'DE_ICRS', 'pmRA', 'pmDE']].dropna()
 
         obsmjd = exposure.mjd
-        gaia_stars_df = gaia_stars_df.assign(ra=gaia_stars_df['ra']+(obsmjd-j2000mjd)*gaia_stars_df['pmRA'],
-                                             dec=gaia_stars_df['dec']+(obsmjd-j2000mjd)*gaia_stars_df['pmDE'])
+        # gaia_stars_df = gaia_stars_df.assign(ra=gaia_stars_df['ra']+(obsmjd-j2000mjd)*gaia_stars_df['pmRA'],
+        #                                      dec=gaia_stars_df['dec']+(obsmjd-j2000mjd)*gaia_stars_df['pmDE'])
 
         logger.info("Total Gaia stars={}".format(len(gaia_stars_df)))
         # Remove Gaia stars outside of the exposure
         wcs = exposure.wcs
-        gaia_stars_skycoords = SkyCoord(ra=gaia_stars_df['ra'].to_numpy(), dec=gaia_stars_df['dec'].to_numpy(), unit='deg')
+        gaia_stars_skycoords = SkyCoord(ra=gaia_stars_df['RA_ICRS'].to_numpy(), dec=gaia_stars_df['DE_ICRS'].to_numpy(), unit='deg')
         gaia_stars_inside = wcs.footprint_contains(gaia_stars_skycoords)
         inside = sum(gaia_stars_inside)
         # gaia_stars_inside = contained_in_exposure(gaia_stars_skycoords, wcs, return_mask=True)

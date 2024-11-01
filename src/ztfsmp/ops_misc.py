@@ -150,22 +150,13 @@ def retrieve_catalogs(lightcurve, logger, args, op_args):
             if name == 'ps1':
                 catalog_df = catalog_df.loc[catalog_df['Nd']>=20].reset_index(drop=True)
                 catalog_df = ps1_cat_remove_bad(catalog_df)
-                # catalog_df = catalog_df.loc[catalog_df['gmag']-catalog_df['rmag']<=1.5]
-                # catalog_df = catalog_df.loc[catalog_df['gmag']-catalog_df['rmag']>=0.]
                 catalog_df = catalog_df.dropna(subset=['gmag', 'e_gmag', 'rmag', 'e_rmag', 'imag', 'e_imag'])
 
             if name == 'gaia':
                 # Change proper motion units
-                # catalog_df['pmRA'] = catalog_df['pmRA']/np.cos(np.deg2rad(catalog_df['dec']))/1000./3600./365.25 # TODO: check if dec should be J2000 or something else
-                # catalog_df['pmDE'] = catalog_df['pmDE']/1000./3600./365.25
-                catalog_df = catalog_df.assign(pmRA=catalog_df['pmRA']/np.cos(np.deg2rad(catalog_df['dec']))/1000./3600./365.25,
+                catalog_df = catalog_df.dropna(subset=['Gmag', 'e_Gmag', 'BPmag', 'e_BPmag', 'RPmag', 'e_RPmag', 'DE_ICRS', 'RA_ICRS', 'pmRA', 'pmDE'])
+                catalog_df = catalog_df.assign(pmRA=catalog_df['pmRA']/np.cos(np.deg2rad(catalog_df['DE_ICRS']))/1000./3600./365.25,
                                                pmDE=catalog_df['pmDE']/1000./3600./365.25)
-
-                # catalog_df = catalog_df.loc[catalog_df['Gmag'] >= 10.]
-                # catalog_df = catalog_df.loc[catalog_df['Gmag'] <= 23.]
-                # catalog_df = catalog_df.loc[catalog_df['BP-RP'] <= 2.]
-                # catalog_df = catalog_df.loc[catalog_df['BP-RP'] >= -0.5]
-                catalog_df = catalog_df.dropna(subset=['Gmag', 'e_Gmag', 'BPmag', 'e_BPmag', 'RPmag', 'e_RPmag'])
 
             logger.info("Saving catalog into {}".format(catalog_path))
             catalog_df.to_parquet(catalog_path)
@@ -216,7 +207,6 @@ def retrieve_catalogs(lightcurve, logger, args, op_args):
 
     gaia_df = _get_catalog('gaia', centroids, radius)
     ps1_df = _get_catalog('ps1', centroids, radius)
-
     _plot_catalog_coverage(gaia_df, 'gaia_full')
     _plot_catalog_coverage(ps1_df, 'ps1_full')
 
@@ -574,7 +564,6 @@ def match_catalogs(exposure, logger, args, op_args):
     import astropy.units as u
 
     from ztfsmp.misc_utils import contained_in_exposure, match_pixel_space
-    from ztfsmp.ext_cat_utils import gaiarefmjd
     from ztfsmp.ztf_utils import quadrant_width_px, quadrant_height_px
 
     try:
@@ -609,7 +598,7 @@ def match_catalogs(exposure, logger, args, op_args):
 
     # Match Gaia catalog with exposure catalogs
     # First remove Gaia stars not contained in the exposure
-    gaia_stars_skycoords = SkyCoord(ra=gaia_stars_df['ra'].to_numpy(), dec=gaia_stars_df['dec'].to_numpy(), unit='deg')
+    gaia_stars_skycoords = SkyCoord(ra=gaia_stars_df['RA_ICRS'].to_numpy(), dec=gaia_stars_df['DE_ICRS'].to_numpy(), unit='deg')
     gaia_stars_inside = wcs.footprint_contains(gaia_stars_skycoords)
     gaia_stars_skycoords = gaia_stars_skycoords[gaia_stars_inside]
     gaia_stars_df = gaia_stars_df.iloc[gaia_stars_inside]
@@ -902,7 +891,7 @@ def build_psfstars_catalog(lightcurve, logger, args, op_args):
     import pandas as pd
     from ztfsmp.misc_utils import make_index_from_array
     from ztfsmp.listtable import ListTable
-    from starflats import models, full_starflat_model
+    # from starflats import models, full_starflat_model
 
     photom_df = ListTable.from_filename(lightcurve.path.joinpath("mappings/photom_ratios.ntuple")).df.set_index('expccd')
 
@@ -960,7 +949,14 @@ def build_psfstars_catalog(lightcurve, logger, args, op_args):
                                   'chi2': np.bincount(dp.gaiaid_index[~solver.bads], weights=measures_df.loc[~solver.bads]['wres']**2)/np.bincount(dp.gaiaid_index[~solver.bads]),
                                   'gaiaid': list(dp.gaiaid_map.keys())})
 
-    rms_flux = np.sqrt(np.bincount(dp.gaiaid_index[~solver.bads], weights=dp.flux[~solver.bads]**2)/np.bincount(dp.gaiaid_index[~solver.bads])-(np.bincount(dp.gaiaid_index[~solver.bads], weights=dp.flux[~solver.bads])/np.bincount(dp.gaiaid_index[~solver.bads]))**2)
+    # rms_flux = np.sqrt(np.bincount(dp.gaiaid_index[~solver.bads], weights=dp.flux[~solver.bads]**2)/np.bincount(dp.gaiaid_index[~solver.bads])-(np.bincount(dp.gaiaid_index[~solver.bads], weights=dp.flux[~solver.bads])/np.bincount(dp.gaiaid_index[~solver.bads]))**2)
+
+    w = 1./dp.eflux**2
+    s1 = np.bincount(dp.gaiaid_index[~solver.bads], weights=w[~solver.bads]*dp.flux[~solver.bads])
+    s2 = np.bincount(dp.gaiaid_index[~solver.bads], weights=w[~solver.bads]*dp.flux[~solver.bads]**2)
+    N = np.bincount(dp.gaiaid_index[~solver.bads])
+    rms_flux = np.sqrt((N*s2-s1**2)/(N*(N-1)))
+
     # rms_mag = np.sqrt(np.bincount(dp.gaiaid_index[~solver.bads], weights=measures_df.loc[~solver.bads]['mag']**2)/np.bincount(dp.gaiaid_index[~solver.bads])-(np.bincount(dp.gaiaid_index[~solver.bads], weights=measures_df[~solver.bads]['mag'])/np.bincount(dp.gaiaid_index[~solver.bads]))**2)
     stars_df = stars_df.assign(rms_mag=2.5/np.log(10)*rms_flux/solver.model.params.free)
 
@@ -976,20 +972,21 @@ def build_psfstars_catalog(lightcurve, logger, args, op_args):
     stars_df.to_parquet(lightcurve.path.joinpath("psfstars.parquet"))
 
 
-    import matplotlib.pyplot as plt
-    from saunerie.plottools import binplot
+    # import matplotlib.pyplot as plt
+    # from saunerie.plottools import binplot
 
-    plt.subplots(nrows=2, ncols=1, figsize=(10., 4.), sharex=True, gridspec_kw={'hspace': 0.})
-    plt.subplot(2, 1, 1)
-    mag_bins, rms_bins, err_bins = binplot(stars_df['Gmag'].to_numpy(), stars_df['rms_mag'].to_numpy(), bins=np.linspace(15., 21., 10), robust=True, scale=False)
-    plt.grid()
-    plt.subplot(2, 1, 2)
-    plt.plot(mag_bins, rms_bins)
-    plt.grid()
-    plt.xlabel("$m_G$ [AB mag]")
-    plt.show()
+    # plt.subplots(nrows=2, ncols=1, figsize=(10., 4.), sharex=True, gridspec_kw={'hspace': 0.})
+    # plt.subplot(2, 1, 1)
+    # mag_bins, rms_bins, err_bins = binplot(stars_df['Gmag'].to_numpy(), stars_df['rms_mag'].to_numpy(), bins=np.linspace(15., 21., 10), robust=True, scale=False)
+    # plt.grid()
+    # plt.subplot(2, 1, 2)
+    # plt.plot(mag_bins, rms_bins)
+    # plt.grid()
+    # plt.xlabel("$m_G$ [AB mag]")
+    # plt.show()
 
-    print(rms_bins)
+    # print(rms_bins)
+    return True
 
 register_op('build_psfstars_catalog', reduce_op=build_psfstars_catalog, parameters=[{'name': 'min_measurement', 'type': int, 'default': 5, 'desc': ""}])
 
@@ -1039,6 +1036,8 @@ def plot_star_lightcurves(lightcurve, logger, args, op_args):
         plt.suptitle("{} \u2014 $G$={:.2f} mag".format(gaiaid, psfstar['Gmag']))
 
         smpstar = smpstars_df.loc[gaiaid]
+        rms_mag_min, rms_mag_max = np.min([smpstar['rms_mag'], psfstar['rms_mag']]), np.max([smpstar['rms_mag'], psfstar['rms_mag']])
+        minmag, maxmag = (psfstar['mag']+smpstar['mag'])/2.-7.*rms_mag_max, (psfstar['mag']+smpstar['mag'])/2.+7.*rms_mag_max
         m = (smp_lc_df['gaiaid']==gaiaid)
         mjdmin, mjdmax = smp_lc_df.loc[m]['mjd'].min()-20., smp_lc_df.loc[m]['mjd'].max()+20.
         ax_bottom.set_xlim(mjdmin, mjdmax)
@@ -1046,6 +1045,7 @@ def plot_star_lightcurves(lightcurve, logger, args, op_args):
         ax_bottom.grid()
         ax_bottom.axhline(smpstar['mag'])
         ax_bottom.set_ylabel("SMP \u2014 $m$ [mag]", size='xx-large')
+        ax_bottom.set_ylim(minmag, maxmag)
         ax_bottom.fill_between([mjdmin, mjdmax],
                                [smpstar['mag']-2*smpstar['rms_mag'], smpstar['mag']-2*smpstar['rms_mag']],
                                [smpstar['mag']+2*smpstar['rms_mag'], smpstar['mag']+2*smpstar['rms_mag']],
@@ -1075,11 +1075,12 @@ def plot_star_lightcurves(lightcurve, logger, args, op_args):
         ax_top.text(0.7, 0.9, "$m$={:.2e}mag\nRMS={:.2e}mag".format(psfstar['mag'], psfstar['rms_mag']),
                     horizontalalignment='left', verticalalignment='top', transform=ax_top.transAxes,
                     size='xx-large')
+        ax_top.set_ylim(minmag, maxmag)
         ax_top.grid()
 
         ax_bottom.set_xlabel("MJD", size='xx-large')
-
         plt.savefig(lightcurve.path.joinpath("stars_lc/{}.png".format(gaiaid)))
+        plt.show()
         plt.close()
 
     return True

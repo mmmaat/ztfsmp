@@ -221,6 +221,7 @@ def reduce_op(wd, name, filtercode, func, save_stats, args, op_args):
 
 
 def main():
+    print(len(pipeline.ops))
     argparser = RunArguments(description="")
     argparser.add_argument('--run-arguments', type=pathlib.Path, help="")
     argparser.add_argument('--ztfname', type=str, help="If provided, perform computation on one SN1a. If it points to a valid text file, will perform computation on all keys. If not provided, process the whole working directory.")
