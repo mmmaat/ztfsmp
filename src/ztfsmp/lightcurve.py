@@ -118,12 +118,15 @@ class Exposure(_Exposure):
     def wcs(self):
         return WCS(self.exposure_header)
 
-    def retrieve_exposure(self, ztfin2p3_detrend=False, force_rewrite=True):
+    def retrieve_exposure(self, ztfin2p3_detrend=False, force_rewrite=True, **kwargs):
         if ztfin2p3_detrend:
             from ztfin2p3.science import build_science_image
             raw_path = str(pathlib.Path(get_file(self.raw_name, downloadit=False)))
-            paths = build_science_image(raw_path, store=True, overwrite=True, corr_pocket=True)
+            paths = build_science_image(raw_path, store=True, overwrite=True, **kwargs)
             image_path = pathlib.Path(paths[self.qid-1])
+        elif 'ztfin2p3' in self.name:
+            from ztfin2p3.io import ipacfilename_to_ztfin2p3filepath
+            image_path = pathlib.Path(ipacfilename_to_ztfin2p3filepath("ztf" + self.name[8:] + "_sciimg.fits"))
         else:
             image_path = pathlib.Path(get_file(self.name + "_sciimg.fits", downloadit=False))
 
@@ -350,7 +353,6 @@ class Lightcurve(_Lightcurve):
             self.uncompress()
 
         self.__exposures = dict([(exposure_path.name, Exposure(self, exposure_path.name)) for exposure_path in list(self.__path.glob(exposure_regexp))])
-
 
     @property
     def exposures(self):

@@ -58,11 +58,14 @@ def mkcat2(exposure, logger, args, op_args):
         logger.info("Total Gaia stars={}".format(len(gaia_stars_df)))
         # Remove Gaia stars outside of the exposure
         wcs = exposure.wcs
+        ra_center, dec_center = exposure.center()
+        dist = np.sqrt((ra_center-gaia_stars_df['RA_ICRS'].to_numpy())**2+(dec_center-gaia_stars_df['DE_ICRS'].to_numpy())**2)
+        m = (dist <= 0.7)
+        gaia_stars_df = gaia_stars_df[m]
         gaia_stars_skycoords = SkyCoord(ra=gaia_stars_df['RA_ICRS'].to_numpy(), dec=gaia_stars_df['DE_ICRS'].to_numpy(), unit='deg')
-        gaia_stars_inside = wcs.footprint_contains(gaia_stars_skycoords)
-        inside = sum(gaia_stars_inside)
-        # gaia_stars_inside = contained_in_exposure(gaia_stars_skycoords, wcs, return_mask=True)
-        if np.sum(gaia_stars_inside) == 0:
+        gaia_stars_inside = wcs.footprint_contains(gaia_stars_skycoords).tolist()
+
+        if sum(gaia_stars_inside) == 0:
             logger.error("No Gaia stars found inside the exposure!")
             return False
 
@@ -97,7 +100,7 @@ def mkcat2(exposure, logger, args, op_args):
 
         aperse_cat.df = aperse_cat.df.iloc[keep_idx]
 
-        i = match_pixel_space(gaia_stars_df[['x', 'y']].to_records(), aperse_cat.df[['x', 'y']].to_records(), radius=5.)
+        i = match_pixel_space(gaia_stars_df[['x', 'y']].to_records(), aperse_cat.df[['x', 'y']].to_records(), radius=1.)
         gaia_indices = i[i>=0]
         cat_indices = np.arange(len(aperse_cat.df))[i>=0]
 

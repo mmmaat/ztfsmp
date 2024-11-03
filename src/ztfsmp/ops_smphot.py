@@ -67,8 +67,8 @@ def write_driverfile(lightcurve, logger, args, op_args):
     exposures = lightcurve.get_exposures(files_to_check='cat_indices.hd5')
     reference_exposure = lightcurve.get_reference_exposure()
 
-    logger.info("Reading SN1a parameters")
     if op_args['sn']:
+        logger.info("Reading SN1a parameters")
         sn_parameters = pd.read_hdf(args.lc_folder.joinpath("{}.hd5".format(lightcurve.name)), key='sn_info')
         ra_px, dec_px = lightcurve.exposures[reference_exposure].wcs.world_to_pixel(SkyCoord(ra=sn_parameters['sn_ra'], dec=sn_parameters['sn_dec'], unit='deg'))
 
@@ -216,6 +216,7 @@ def smphot_stars(lightcurve, logger, args, op_args):
 
     ref_exposure = lightcurve.exposures[lightcurve.get_reference_exposure()]
     ref_mjd = ref_exposure.mjd
+    print(ref_exposure.name)
 
     # First list all Gaia stars for wich there are measurements
     logger.info("Retrieving all Gaia stars for which there are measurements")
@@ -294,6 +295,15 @@ def smphot_stars(lightcurve, logger, args, op_args):
         for gaia_to_keep in gaia_to_keep_list:
             if not gaia_to_keep['Source'].item() in cat_stars_df['Source'].tolist():
                 cat_stars_df = pd.concat([cat_stars_df, gaia_to_keep])
+
+    import matplotlib
+    import matplotlib.pyplot as plt
+    matplotlib.use('agg')
+
+    plt.plot(cat_stars_df['ra'], cat_stars_df['dec'], '.')
+    plt.savefig("out.png", dpi=600.)
+    plt.close()
+    return
 
     # Build dummy catalog with remaining Gaia stars
     logger.info("Building generic (empty) calibration catalog from Gaia stars")

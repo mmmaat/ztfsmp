@@ -597,11 +597,21 @@ def match_catalogs(exposure, logger, args, op_args):
     logger.info("Matched {} PSF/aper stars".format(len(psf_stars_df)))
 
     # Match Gaia catalog with exposure catalogs
-    # First remove Gaia stars not contained in the exposure
+    gaia_stars_size = len(gaia_stars_df)
+
+    # First remove very far away stars
+    ra_center, dec_center = exposure.center()
+    dist = np.sqrt((ra_center-gaia_stars_df['RA_ICRS'].to_numpy())**2+(dec_center-gaia_stars_df['DE_ICRS'].to_numpy())**2)
+    m = (dist <= 0.7)
+    gaia_stars_df = gaia_stars_df[m]
+
+    # Then check for closer ones
     gaia_stars_skycoords = SkyCoord(ra=gaia_stars_df['RA_ICRS'].to_numpy(), dec=gaia_stars_df['DE_ICRS'].to_numpy(), unit='deg')
     gaia_stars_inside = wcs.footprint_contains(gaia_stars_skycoords)
     gaia_stars_skycoords = gaia_stars_skycoords[gaia_stars_inside]
     gaia_stars_df = gaia_stars_df.iloc[gaia_stars_inside]
+
+    gaia_stars_inside_indices = gaia_stars_df.index.tolist()
 
     # Project Gaia stars into pixel space
     gaia_stars_x, gaia_stars_y = gaia_stars_skycoords.to_pixel(wcs)
@@ -614,8 +624,21 @@ def match_catalogs(exposure, logger, args, op_args):
         logger.error("Could not match any Gaia stars!")
         raise ValueError("Could not match any Gaia stars!")
 
-    gaia_indices = i[i>=0]
+    # gaia_indices = gaia_stars_df.iloc[i[i>=0]].index.tolist()
     cat_indices = np.arange(len(psf_indices))[i>=0]
+    gaia_indices = i[i>=0]
+
+    # Now we need to rebuild the same sized Gaia catalog, since it has been cut down for matching
+
+    # Reload full gaia catalog
+    # gaia_stars_df = exposure.lightcurve.get_ext_catalog('gaia')
+    # gaia_stars_skycoords = SkyCoord(ra=gaia_stars_df['ra'].to_numpy(), dec=gaia_stars_df['dec'].to_numpy(), unit='deg')
+    # gaia_stars_x, gaia_stars_y = gaia_stars_skycoords.to_pixel(wcs)
+    # gaia_stars_df = gaia_stars_df.assign(x=gaia_stars_x, y=gaia_stars_y)
+
+    # Rebuild inside array
+    gaia_stars_inside = np.array([False]*gaia_stars_size, dtype=bool)
+    np.put_along_axis(gaia_stars_inside, np.array(gaia_stars_inside_indices, dtype=int), np.array([True]*len(gaia_stars_inside_indices), dtype=bool), axis=0)
 
     # Save indices into an HDF file
     with pd.HDFStore(exposure.path.joinpath("cat_indices.hd5"), 'w') as hdfstore:
@@ -895,10 +918,27 @@ def build_psfstars_catalog(lightcurve, logger, args, op_args):
 
     photom_df = ListTable.from_filename(lightcurve.path.joinpath("mappings/photom_ratios.ntuple")).df.set_index('expccd')
 
-    measures_df = pd.concat([pd.read_parquet(measure_path, columns=['gaia_Source', 'psf_x', 'psf_y', 'psf_flux', 'psf_eflux', 'filtercode', 'field', 'ccdid', 'qid', 'mjd', 'quadrant']) for measure_path in lightcurve.path.joinpath("measures").glob("measures_*.parquet")])
-    measures_df = measures_df.rename(columns={'gaia_Source': 'gaiaid', 'psf_x': 'x', 'psf_y': 'y', 'psf_flux': 'flux', 'psf_eflux': 'eflux'})
+# <<<<<<< Updated upstream
+#     measures_df = pd.concat([pd.read_parquet(measure_path, columns=['gaia_Source', 'psf_x', 'psf_y', 'psf_flux', 'psf_eflux', 'filtercode', 'field', 'ccdid', 'qid', 'mjd', 'quadrant']) for measure_path in lightcurve.path.joinpath("measures").glob("measures_*.parquet")])
+#     measures_df = measures_df.rename(columns={'gaia_Source': 'gaiaid', 'psf_x': 'x', 'psf_y': 'y', 'psf_flux': 'flux', 'psf_eflux': 'eflux'})
 
-    # Remove stars for which we only have less than N measurements
+#     # Remove stars for which we only have less than N measurements
+# =======
+    # measures_df = pd.concat([pd.read_parquet(measure_path, columns=['gaia_Source', 'psf_x', 'psf_y', 'psf_flux', 'psf_eflux', 'filtercode', 'field', 'ccdid', 'qid', 'mjd', 'quadrant']) for measure_path in lightcurve.path.joinpath("measures").glob("measures_*.parquet")])
+    # measures_df = measures_df.rename(columns={'gaia_Source': 'gaiaid', 'psf_x': 'x', 'psf_y': 'y', 'psf_flux': 'flux', 'psf_eflux': 'eflux'})
+    # Remove stars for which we only have 1 measurement
+    #
+
+    logger.info("Retrieving exposures")
+    exposures = lightcurve.get_exposures(files_to_check='match_catalogs.success')
+    logger.info("Retrieving headers")
+    header_df = lightcurve.extract_exposure_catalog(files_to_check='match_catalogs.success')
+    catalog_df = lightcurve.extract_star_catalog(['psfstars', 'gaia'])
+    measures_df = pd.concat([catalog_df, header_df.loc[catalog_df['exposure']].reset_index(drop=True)],
+                            axis='columns')
+    measures_df = measures_df[['gaia_Source', 'psfstars_x', 'psfstars_y', 'psfstars_flux', 'psfstars_eflux', 'filtercode', 'field', 'ccdid', 'qid', 'mjd', 'exposure']]
+    measures_df = measures_df.rename(columns={'gaia_Source': 'gaiaid', 'psf_x': 'x', 'psfstars_y': 'y', 'psfstars_flux': 'flux', 'psfstars_eflux': 'eflux', 'exposure': 'quadrant'})
+
     star_index_map, star_index = make_index_from_array(measures_df['gaiaid'].to_numpy())
     star_mask = (np.bincount(star_index) < op_args['min_measurement'])
     to_remove_mask = star_mask[star_index]
@@ -943,6 +983,9 @@ def build_psfstars_catalog(lightcurve, logger, args, op_args):
     #     plt.plot(df['mjd'], df['mag'], '.')
     #     plt.axhline(df.iloc[0]['mean_mag'])
     #     plt.show()
+
+    # plt.hist(measures_df['mean_mag']-measures_df['mag'], bins='auto')
+    # plt.show()
 
     stars_df = pd.DataFrame(data={'mag': -2.5*np.log10(flux),
                                   'emag': 2.5/np.log(10)*np.sqrt(solver.get_cov().diagonal())/solver.model.params.free,
