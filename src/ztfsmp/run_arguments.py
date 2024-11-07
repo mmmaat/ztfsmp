@@ -24,7 +24,10 @@ class RunArguments(argparse.ArgumentParser):
             with open(vars(parsed)['run_arguments'], 'r') as f:
                 lines = f.readlines()
                 for line in lines:
-                    run_arguments.extend(line.strip().split())
+                    # ignore comments (all after '#')
+                    line = ''.join(line.split('#')[:1]).strip()
+                    if line:
+                        run_arguments.extend(line.split())
 
             # Resolve environement variables
             for i in range(len(run_arguments)):
