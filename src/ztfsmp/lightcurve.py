@@ -133,6 +133,10 @@ class Exposure(_Exposure):
         if force_rewrite or not self.path.joinpath("calibrated.fits").exists():
             copyfile(image_path, self.path.joinpath("calibrated.fits"))
 
+        # Poloka needs elixir.fits
+        if ztfin2p3_detrend:
+            copyfile(image_path, self.path.joinpath("elixir.fits"))
+
         return image_path
 
     def update_exposure_header(self):
