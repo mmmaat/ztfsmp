@@ -144,7 +144,7 @@ def schedule_jobs(run_folder, run_name, lightcurves, ntasks, gb_per_task, force_
                "-A", "ztf",
                "-L", "sps",
                "--mem={}G".format(gb_per_task*ntasks),
-               "-t", "7-0",
+               "-t", "2-0",
                batch]
 
         returncode = run_and_log(cmd, logger)

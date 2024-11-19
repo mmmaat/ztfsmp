@@ -88,6 +88,7 @@ def main():
                         else:
                             sciimg_path = pathlib.Path(ztfquery.io.get_file(image_filename, downloadit=False, suffix='sciimg.fits'))
                             mskimg_path = pathlib.Path(ztfquery.io.get_file(image_filename, downloadit=False, suffix='mskimg.fits'))
+
                         #mskimg_path_gz = pathlib.Path(ztfquery.io.get_file(image_filename, downloadit=False, suffix='mskimg.fits.gz'))
 
                         # Much faster than relying on ScienceQuadrant.from_filename() throwing error
@@ -118,24 +119,26 @@ def main():
                             mskhdu = fits.PrimaryHDU([deads])
                             mskhdu.writeto(folder_path.joinpath("dead.fits.gz"), overwrite=True)
                     else:
-                        raw_path = pathlib.Path(ztfquery.io.get_file(image_filename))
+                        qid = int(image_filename[-1])
+                        image_filename = image_filename[:-3] + ".fits.fz"
+                        raw_path = pathlib.Path(ztfquery.io.get_file(image_filename, downloadit=False))
 
                         if not raw_path.exists():
                             raise FileNotFoundError(raw_path)
 
-                        folder_name = image_filename[:37]
+                        folder_name = image_filename.split(".")[0] + "_q{}".format(qid)
                         folder_path = args.output.joinpath("{}/{}".format(filtercode, folder_name))
 
                         folder_path.mkdir(exist_ok=True)
                         folder_path.joinpath(".dbstuff").touch()
 
-                        _create_symlink(folder_path.joinpath("elixir.fits"), raw_path)
+                        # _create_symlink(folder_path.joinpath("elixir.fits"), raw_path)
 
 
                 except FileNotFoundError as e:
-                    quadrant_logger.error("Fail: {}".format(sciimg_path))
+                    quadrant_logger.error("Fail: {}".format(image_filename))
                 except Exception as e:
-                    quadrant_logger.exception("Exception error for: {}".format(sciimg_path))
+                    quadrant_logger.exception("Exception error for: {}".format(image_filename))
                 else:
                     if args.use_raw:
                         quadrant_logger.info("Success: {}".format(image_filename))

@@ -689,7 +689,6 @@ def smphot_flux_bias(lightcurve, logger, args, op_args):
         astro_dp = astro_models['dp']
 
     smp_stars_df = pd.read_parquet(lightcurve.smphot_stars_path.joinpath("constant_stars.parquet"))
-    print(smp_stars_df)
     plt.plot(smp_stars_df['mag'].to_numpy(), smp_stars_df['cat_mag'], '.')
     plt.show()
     tp2px_residuals = tp2px_model.residuals(np.array([astro_dp.tpx, astro_dp.tpy]), np.array([astro_dp.x, astro_dp.y]), np.array([astro_dp.pmtpx, astro_dp.pmtpy]), astro_dp.mjd, exposure_indices=astro_dp.exposure_index)

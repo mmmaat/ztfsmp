@@ -53,7 +53,7 @@ def star_averager(lightcurve, logger, args, op_args):
 
 
     # Create dataproxy for the fit
-    dp = DataProxy(smphot_lc_df[['flux', 'error', 'star', 'mjd']].to_records(), flux='flux', error='error', star='star', mjd='mjd')
+    dp = DataProxy(smphot_lc_df[['flux', 'error', 'star', 'mjd', 'gaiaid']].to_records(), flux='flux', error='error', star='star', mjd='mjd', gaiaid='gaiaid')
     dp.make_index('star')
     dp.make_index('mjd')
 
@@ -100,6 +100,10 @@ def star_averager(lightcurve, logger, args, op_args):
     smphot_lc_df.to_parquet(lightcurve.smphot_stars_path.joinpath("stars_lightcurves.parquet"))
     stars_df.to_parquet(lightcurve.smphot_stars_path.joinpath("constant_stars.parquet"))
     logger.info("Done")
+
+    # with open("smp_dataset.pickle", 'wb') as f:
+    #     import pickle
+    #     pickle.dump({'bads': solver.bads, 'params': solver.model.params, 'dp': dp, 'gaia': gaia_df}, f)
 
     # Update lightcurve yaml with fit informations
     logger.info("Updating lightcurve yaml")
