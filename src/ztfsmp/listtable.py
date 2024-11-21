@@ -81,7 +81,7 @@ def read_list_ext(f, delim_whitespace=True):
         line = f.readline()
 
     if delim_whitespace:
-        df = pd.read_csv(f, delim_whitespace=True, names=columns, index_col=False, skipinitialspace=True)
+        df = pd.read_csv(f, sep='\s+', names=columns, index_col=False, skipinitialspace=True)
     else:
         df = pd.read_csv(f, sep=' ', names=columns, index_col=False, skipinitialspace=False)
 
