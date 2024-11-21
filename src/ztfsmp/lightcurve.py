@@ -58,6 +58,10 @@ class _Exposure:
         return self.__day
 
     @property
+    def yyyymm(self):
+        return str(self.year).zfill(4) + str(self.month).zfill(2)
+
+    @property
     def field(self):
         return self.__field
 
@@ -118,11 +122,11 @@ class Exposure(_Exposure):
     def wcs(self):
         return WCS(self.exposure_header)
 
-    def retrieve_exposure(self, ztfin2p3_detrend=False, force_rewrite=True):
+    def retrieve_exposure(self, ztfin2p3_detrend=False, corr_pocket=True, force_rewrite=True):
         if ztfin2p3_detrend:
             from ztfin2p3.science import build_science_image
             raw_path = str(pathlib.Path(get_file(self.raw_name, downloadit=False)))
-            paths = build_science_image(raw_path, store=True, overwrite=True, corr_pocket=True)
+            paths = build_science_image(raw_path, store=True, overwrite=True, corr_pocket=corr_pocket)
             image_path = pathlib.Path(paths[self.qid-1])
         else:
             image_path = pathlib.Path(get_file(self.name + "_sciimg.fits", downloadit=False))

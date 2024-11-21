@@ -5,9 +5,18 @@ from ztfsmp.pipeline import register_op
 
 
 def make_catalog(exposure, logger, args, op_args):
-    logger.info("Retrieving science exposure...")
+    logger.info(
+        "Retrieving science exposure... ztfin2p3_detrend=%s, pocket_correction_start_at=%s",
+        op_args['ztfin2p3_detrend'], op_args['pocket_correction_start_at'])
     try:
-        image_path = exposure.retrieve_exposure(ztfin2p3_detrend=op_args['ztfin2p3_detrend'])
+        corr_pocket = exposure.yyyymm >= op_args['pocket_correction_start_at']
+        logger.info(
+            "Exposure date is %s, %s pocket effect correction",
+            exposure.yyyymm, 'applying' if corr_pocket else 'ignoring')
+
+        image_path = exposure.retrieve_exposure(
+            ztfin2p3_detrend=op_args['ztfin2p3_detrend'],
+            corr_pocket=corr_pocket)
     except FileNotFoundError as e:
         print(e)
         logger.error(e)
@@ -24,7 +33,10 @@ def make_catalog(exposure, logger, args, op_args):
 
 
 make_catalog_rm = ["low.fits.gz", "miniback.fits", "segmentation.cv.fits", "segmentation.fits"]
-make_catalog_parameters = [{'name': 'ztfin2p3_detrend', 'type': bool, 'default': False, 'desc': ""}]
+make_catalog_parameters = [
+    {'name': 'ztfin2p3_detrend', 'type': bool, 'default': False, 'desc': ""},
+    {'name': 'pocket_correction_start_at', 'type': str, 'default': '201911',
+     'desc': 'correct pocket effect for exposures after this date, in format YYYYMM, has effect only if ztfin2p3_detrend is True'}]
 
 register_op('make_catalog', map_op=make_catalog, rm_list=make_catalog_rm, parameters=make_catalog_parameters)
 
