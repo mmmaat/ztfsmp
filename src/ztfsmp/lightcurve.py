@@ -20,7 +20,7 @@ from ztfimg.utils.tools import ccdid_qid_to_rcid
 
 from ztfsmp.listtable import ListTable
 from ztfsmp.ztf_utils import ztf_quadrant_name_explode, quadrant_width_px, quadrant_height_px, ztfquadrant_center
-from ztfsmp.ext_cat_utils import j2000mjd
+from ztfsmp.ext_cat_utils import gaia_edr3_refmjd
 
 
 class _Exposure:
@@ -118,12 +118,15 @@ class Exposure(_Exposure):
     def wcs(self):
         return WCS(self.exposure_header)
 
-    def retrieve_exposure(self, ztfin2p3_detrend=False, force_rewrite=True):
+    def retrieve_exposure(self, ztfin2p3_detrend=False, force_rewrite=True, **kwargs):
         if ztfin2p3_detrend:
             from ztfin2p3.science import build_science_image
             raw_path = str(pathlib.Path(get_file(self.raw_name, downloadit=False)))
-            paths = build_science_image(raw_path, store=True, overwrite=True, corr_pocket=True)
+            paths = build_science_image(raw_path, store=True, overwrite=True, **kwargs)
             image_path = pathlib.Path(paths[self.qid-1])
+        elif 'ztfin2p3' in self.name:
+            from ztfin2p3.io import ipacfilename_to_ztfin2p3filepath
+            image_path = pathlib.Path(ipacfilename_to_ztfin2p3filepath("ztf" + self.name[8:] + "_sciimg.fits"))
         else:
             image_path = pathlib.Path(get_file(self.name + "_sciimg.fits", downloadit=False))
 
@@ -185,8 +188,8 @@ class Exposure(_Exposure):
             obsmjd = self.mjd
             if cat_name == 'gaia' or cat_name == 'ubercal_self' or cat_name == 'ubercal_ps1':
                 ext_cat_df.fillna(0., inplace=True)
-                ext_cat_df['ra'] = ext_cat_df['ra']+(obsmjd-j2000mjd)*ext_cat_df['pmRA']
-                ext_cat_df['dec'] = ext_cat_df['dec']+(obsmjd-j2000mjd)*ext_cat_df['pmDE']
+                ext_cat_df = ext_cat_df.assign(RA_ICRS=ext_cat_df['RA_ICRS']+(obsmjd-gaia_edr3_refmjd)*ext_cat_df['pmRA'],
+                                               DE_ICRS=ext_cat_df['DE_ICRS']+(obsmjd-gaia_edr3_refmjd)*ext_cat_df['pmDE'])
             elif cat_name == 'ps1':
                 # Who uses PS1 astrometry for something other than matching it with Gaia?
                 pass
@@ -194,10 +197,13 @@ class Exposure(_Exposure):
                 raise NotImplementedError()
 
         if project:
-            skycoords = SkyCoord(ra=ext_cat_df['ra'].to_numpy(), dec=ext_cat_df['dec'].to_numpy(), unit='deg')
-            stars_x, stars_y = skycoords.to_pixel(self.wcs)
-            ext_cat_df['x'] = stars_x
-            ext_cat_df['y'] = stars_y
+            if cat_name == 'gaia':
+                skycoords = SkyCoord(ra=ext_cat_df['RA_ICRS'].to_numpy(), dec=ext_cat_df['DE_ICRS'].to_numpy(), unit='deg')
+                stars_x, stars_y = skycoords.to_pixel(self.wcs)
+                ext_cat_df['x'] = stars_x
+                ext_cat_df['y'] = stars_y
+            else:
+                raise ValueError("get_ext_catalog(): proper motion can only be corrected on the Gaia catalog!")
 
         return ext_cat_df
 
@@ -351,7 +357,6 @@ class Lightcurve(_Lightcurve):
             self.uncompress()
 
         self.__exposures = dict([(exposure_path.name, Exposure(self, exposure_path.name)) for exposure_path in list(self.__path.glob(exposure_regexp))])
-
 
     @property
     def exposures(self):
@@ -541,7 +546,7 @@ class Lightcurve(_Lightcurve):
 
         return pd.DataFrame(exposures).set_index('name')
 
-    def extract_star_catalog(self, catalog_names, project=False):
+    def extract_star_catalog(self, catalog_names, project=False, pm_correction=True):
         for catalog_name in catalog_names:
             if catalog_name not in (self.star_catalogs_name+self.ext_star_catalogs_name):
                 raise ValueError("Star catalog name \'{}\' does not exists!".format(catalog_name))
@@ -557,7 +562,7 @@ class Lightcurve(_Lightcurve):
                 if catalog_name in self.star_catalogs_name:
                     catalog_df = exposure.get_matched_catalog(catalog_name)
                 else:
-                    catalog_df = exposure.get_matched_ext_catalog(catalog_name, project=project)
+                    catalog_df = exposure.get_matched_ext_catalog(catalog_name, project=project, pm_correction=pm_correction)
 
                 if not name_set:
                     catalog_df.insert(0, 'exposure', exposure.name)

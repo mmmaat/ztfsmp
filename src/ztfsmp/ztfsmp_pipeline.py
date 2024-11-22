@@ -77,7 +77,7 @@ def map_op(exposure_name, wd, name, filtercode, func, args, op_args):
             if args.exposure_workspace:
                 # If exposure working directory is specified (such as using /dev/shm), rebuild the exposure object accordingly
                 exposure_workspace = args.exposure_workspace.joinpath(exposure_name)
-                shutil.copytree(exposure_path, exposure_workspace, symlinks=False, dirs_exist_ok=True)
+                shutil.copytree(exposure_path, exposure_workspace, symlinks=False, dirs_exist_ok=True, copy_function=shutil.copyfile)
                 exposure_path = exposure_workspace
                 exposure = Exposure(Lightcurve(name, filtercode, wd), exposure_name, path=exposure_path)
 
@@ -130,7 +130,7 @@ def map_op(exposure_name, wd, name, filtercode, func, args, op_args):
                 if args.exposure_workspace:
                     logger.info("Copying exposure data from temporary working directory back into original.")
                     exposure_path.joinpath("elixir.fits").unlink()
-                    shutil.copytree(exposure_path, wd.joinpath("{}/{}/{}".format(name, filtercode, exposure_name)), dirs_exist_ok=True)
+                    shutil.copytree(exposure_path, wd.joinpath("{}/{}/{}".format(name, filtercode, exposure_name)), dirs_exist_ok=True, copy_function=shutil.copyfile)
                     logger.info("Erasing exposure data from temporary working directory.")
                     shutil.rmtree(exposure_path)
 
@@ -221,6 +221,7 @@ def reduce_op(wd, name, filtercode, func, save_stats, args, op_args):
 
 
 def main():
+    print(len(pipeline.ops))
     argparser = RunArguments(description="")
     argparser.add_argument('--run-arguments', type=pathlib.Path, help="")
     argparser.add_argument('--ztfname', type=str, help="If provided, perform computation on one SN1a. If it points to a valid text file, will perform computation on all keys. If not provided, process the whole working directory.")
@@ -350,9 +351,9 @@ def main():
                             to_copy = [".dbstuff", "elixir.fits", "dead.fits.gz"]
                             to_ignore = [str(f) for f in map(lambda x: pathlib.Path(x), files) if (str(f.name) not in to_copy) and not (pathlib.Path(current_folder).joinpath(f).is_dir() and str(f)[:4] == "ztf_")]
                             return to_ignore
-                        shutil.copytree(band_path, scratch_band_path, symlinks=True, dirs_exist_ok=True, ignore=_from_scratch_ignore)
+                        shutil.copytree(band_path, scratch_band_path, symlinks=True, dirs_exist_ok=True, ignore=_from_scratch_ignore, copy_function=shutil.copyfile)
                     else:
-                        shutil.copytree(args.wd.joinpath("{}/{}".format(ztfname, filtercode)), scratch_band_path, symlinks=True)
+                        shutil.copytree(args.wd.joinpath("{}/{}".format(ztfname, filtercode)), scratch_band_path, symlinks=True, copy_function=shutil.copyfile)
 
     # if args.compress:
     #     for ztfname in ztfnames:
@@ -526,7 +527,7 @@ def main():
             to_ignore.extend(["calibrated.fits", "weight.fz"])
 
         print("Ignoring files {}".format(to_ignore))
-        shutil.copytree(args.scratch, args.wd, dirs_exist_ok=True, ignore=shutil.ignore_patterns(*to_ignore))
+        shutil.copytree(args.scratch, args.wd, dirs_exist_ok=True, ignore=shutil.ignore_patterns(*to_ignore), copy_function=shutil.copyfile)
         shutil.rmtree(args.scratch)
         print("Done")
 
