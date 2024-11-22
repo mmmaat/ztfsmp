@@ -300,11 +300,6 @@ def smphot_stars(lightcurve, logger, args, op_args):
     import matplotlib.pyplot as plt
     matplotlib.use('agg')
 
-    plt.plot(cat_stars_df['ra'], cat_stars_df['dec'], '.')
-    plt.savefig("out.png", dpi=600.)
-    plt.close()
-    return
-
     # Build dummy catalog with remaining Gaia stars
     logger.info("Building generic (empty) calibration catalog from Gaia stars")
     calib_df = pd.concat([cat_stars_df[['ra', 'dec']].reset_index(drop=True),
