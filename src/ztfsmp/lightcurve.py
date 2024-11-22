@@ -42,6 +42,10 @@ class _Exposure:
         return self.__name
 
     @property
+    def path(self):
+        return self.__path
+
+    @property
     def raw_name(self):
         return "_".join(self.__name.split("_")[:-1])
 
@@ -126,7 +130,12 @@ class Exposure(_Exposure):
         if ztfin2p3_detrend:
             from ztfin2p3.science import build_science_image
             raw_path = str(pathlib.Path(get_file(self.raw_name, downloadit=False)))
-            paths = build_science_image(raw_path, store=True, overwrite=True, corr_pocket=corr_pocket)
+            paths = build_science_image(
+                raw_path,
+                store=True,
+                overwrite=True,
+                corr_pocket=corr_pocket,
+                outpath=self.path)
             image_path = pathlib.Path(paths[self.qid-1])
         else:
             image_path = pathlib.Path(get_file(self.name + "_sciimg.fits", downloadit=False))
