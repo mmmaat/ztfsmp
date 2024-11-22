@@ -117,12 +117,8 @@ def map_op(exposure_name, wd, name, filtercode, func, args, op_args):
                 if args.rm_intermediates and (pipeline.ops[func]['rm_list'] is not None):
                     logger.info("Removing intermediate files...")
                     for f in pipeline.ops[func]['rm_list']:
-                        to_remove = exposure_path.joinpath(f)
-                        if to_remove.exists():
+                        for to_remove in exposure_path.glob(f):
                             to_remove.unlink()
-                        else:
-                            logger.warning("Tried to remove {} but it does not exist!".format(f))
-                            logger.warning(" Full path: {}".format(to_remove))
 
                 if args.dump_timings:
                     dump_timings(start_time, end_time, exposure_path.joinpath("timings_{}".format(func)))

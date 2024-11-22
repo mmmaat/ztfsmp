@@ -32,7 +32,13 @@ def make_catalog(exposure, logger, args, op_args):
     return exposure.path.joinpath("se.list").exists()
 
 
-make_catalog_rm = ["low.fits.gz", "miniback.fits", "segmentation.cv.fits", "segmentation.fits"]
+make_catalog_rm = [
+    "low.fits.gz",
+    "miniback.fits",
+    "segmentation.cv.fits",
+    "segmentation.fits",
+    "ztfin2p3_*_sciimg.fits"]
+
 make_catalog_parameters = [
     {'name': 'ztfin2p3_detrend', 'type': bool, 'default': False, 'desc': ""},
     {'name': 'pocket_correction_start_at', 'type': str, 'default': '201911',
