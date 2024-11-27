@@ -311,7 +311,12 @@ def main():
         print("Running {} workers with {} processes each ({} total).".format(args.cluster_worker, args.n_jobs, args.cluster_worker*args.n_jobs))
         client.wait_for_workers(1)
     elif not args.synchronous_compute:
-        localCluster = LocalCluster(n_workers=args.n_jobs, memory_limit=None, processes=True, threads_per_worker=1, local_directory="{}/dask-workers".format(os.getenv('TMPDIR', default=".")))
+        localCluster = LocalCluster(
+            n_workers=args.n_jobs,
+            memory_limit=None,
+            processes=True,
+            threads_per_worker=1,
+            local_directory="{}/dask-workers".format(os.getenv('TMPDIR', default=".")))
         client = Client(localCluster)
 
         print("Running a local cluster with {} processes.".format(args.n_jobs))
@@ -333,7 +338,7 @@ def main():
     # If requested, move relevant data into a temporary folder, e.g. stratch
     print("", flush=True)
     if args.scratch:
-        print("Moving data into scratch folder.", flush=True)
+        print(f"Moving data into scratch folder: {args.scratch}", flush=True)
         for ztfname in ztfnames:
             for filtercode in filtercodes:
                 band_path = args.wd.joinpath("{}/{}".format(ztfname, filtercode))
@@ -509,9 +514,10 @@ def main():
     if len(ztfnames) == 1 and len(filtercodes) == 1:
         dump_timings(start_time, end_time, args.wd.joinpath("{}/{}/timings_total".format(ztfnames[0], filtercodes[0])))
 
-    if not args.synchronous_compute:
-        client.close(30)
-        client.shutdown()
+    # commented out because causng a timeout crash before the data is moved to wd
+    # if not args.synchronous_compute:
+    #     client.close(30)
+    #     client.shutdown()
 
     if args.scratch:
         print("Moving data back from scratch folder into working directory.")
