@@ -40,7 +40,7 @@ def main():
 
     args.output.mkdir(exist_ok=True)
     prepare_logger = logging.getLogger("prepare")
-    prepare_logger.addHandler(logging.FileHandler(args.output.joinpath("prepare.log")))
+    # prepare_logger.addHandler(logging.FileHandler(args.output.joinpath("prepare.log")))
     prepare_logger.addHandler(logging.StreamHandler())
     prepare_logger.setLevel(logging.INFO)
     prepare_logger.info(datetime.datetime.today())
@@ -77,7 +77,7 @@ def main():
                 try:
                     # Check files exist
                     quadrant_logger = logging.getLogger(image_filename)
-                    quadrant_logger.addHandler(logging.FileHandler(args.output.joinpath("{}/prepare.log".format(filtercode))))
+                    # quadrant_logger.addHandler(logging.FileHandler(args.output.joinpath("{}/prepare.log".format(filtercode))))
                     quadrant_logger.addHandler(logging.StreamHandler())
                     quadrant_logger.setLevel(logging.INFO)
 
