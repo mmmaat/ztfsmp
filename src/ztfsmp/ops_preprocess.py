@@ -4,20 +4,35 @@ from ztfsmp.pipeline_utils import run_and_log
 from ztfsmp.pipeline import register_op
 
 
-def make_catalog(exposure, logger, args, op_args):
-    logger.info(
-        "Retrieving science exposure... ztfin2p3_detrend=%s, pocket_correction_start_at=%s",
-        op_args['ztfin2p3_detrend'], op_args['pocket_correction_start_at'])
-    try:
-        corr_pocket = exposure.yyyymm >= op_args['pocket_correction_start_at']
+def _get_corr_pocket(arg, exposure, logger):
+    arg = arg.lower()
+    if arg == 'true':
+        logger.info('Applying pocket effect correction')
+        return True
+    if arg == 'false':
+        logger.info('Ignoring pocket effect correction')
+        return False
+    else:  # assumes this is a date in YYYYMM format
+        corr_pocket = exposure.yyyymm >= arg
         logger.info(
             "Exposure date is %s, %s pocket effect correction",
             exposure.yyyymm, 'applying' if corr_pocket else 'ignoring')
+        return corr_pocket
+
+
+
+def make_catalog(exposure, logger, args, op_args):
+    logger.info(
+        "Retrieving science exposure... ztfin2p3_detrend=%s, pocket_correction=%s",
+        op_args['ztfin2p3_detrend'], op_args['pocket_correction'])
+    try:
+        corr_pocket = _get_corr_pocket(
+            op_args['pocket_correction'], exposure, logger)
 
         image_path = exposure.retrieve_exposure(
             ztfin2p3_detrend=op_args['ztfin2p3_detrend'],
             corr_pocket=corr_pocket)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         print(e)
         logger.error(e)
         return False
@@ -41,8 +56,8 @@ make_catalog_rm = [
 
 make_catalog_parameters = [
     {'name': 'ztfin2p3_detrend', 'type': bool, 'default': False, 'desc': ""},
-    {'name': 'pocket_correction_start_at', 'type': str, 'default': '201911',
-     'desc': 'correct pocket effect for exposures after this date, in format YYYYMM, has effect only if ztfin2p3_detrend is True'}]
+    {'name': 'pocket_correction', 'type': str, 'default': '201911',
+     'desc': 'correct pocket effect for exposures. If "true" or "false" do (or don\'t) do it for all images. If a date, in format YYYYMM, correct pocket effect only for images captured after this date. Has effect only if ztfin2p3_detrend is True'}]
 
 register_op('make_catalog', map_op=make_catalog, rm_list=make_catalog_rm, parameters=make_catalog_parameters)
 

@@ -129,6 +129,9 @@ class Exposure(_Exposure):
     def retrieve_exposure(self, ztfin2p3_detrend=False, corr_pocket=True, force_rewrite=True):
         if ztfin2p3_detrend:
             from ztfin2p3.science import build_science_image
+            from ztfin2p3.aperture import get_aperture_photometry, store_aperture_catalog
+            from ztfimg.science import ScienceQuadrant
+
             raw_path = str(pathlib.Path(get_file(self.raw_name, downloadit=False)))
             paths = build_science_image(
                 raw_path,
@@ -137,6 +140,28 @@ class Exposure(_Exposure):
                 corr_pocket=corr_pocket,
                 outpath=self.path)
             image_path = pathlib.Path(paths[self.qid-1])
+
+            quadrant = ScienceQuadrant.from_filename(
+                str(image_path), as_path=True, download=False)
+            if quadrant.mask is None:
+                raise ValueError(f'cannot get aperture, no mask for {self.raw_name}')
+            if quadrant.qid is None:
+                raise ValueError(f'cannot get aperture, no header for {self.raw_name}')
+
+            apcat = get_aperture_photometry(
+                quad,
+                cat="gaia_dr3",
+                apply_proper_motion=True,
+                as_path=False,
+                minimal_columns=True,
+                seplimit=20,
+                bkgann=None,
+                joined=True,
+                refcat_radius=0.7,
+                radius=np.arange(3, 13))
+
+            store_aperture_catalog(apcat, self.path / 'apcat.parquet')
+
         else:
             image_path = pathlib.Path(get_file(self.name + "_sciimg.fits", downloadit=False))
 
