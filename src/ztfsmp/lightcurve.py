@@ -129,6 +129,9 @@ class Exposure(_Exposure):
     def retrieve_exposure(self, ztfin2p3_detrend=False, force_rewrite=True, **kwargs):
         if ztfin2p3_detrend:
             from ztfin2p3.science import build_science_image
+            from ztfin2p3.aperture import get_aperture_photometry, store_aperture_catalog
+            from ztfimg.science import ScienceQuadrant
+
             raw_path = str(pathlib.Path(get_file(self.raw_name, downloadit=False)))
 
             paths = build_science_image(
