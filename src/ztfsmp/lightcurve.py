@@ -149,7 +149,7 @@ class Exposure(_Exposure):
                 raise ValueError(f'cannot get aperture, no header for {self.raw_name}')
 
             apcat = get_aperture_photometry(
-                quad,
+                quadrant,
                 cat="gaia_dr3",
                 apply_proper_motion=True,
                 as_path=False,
@@ -160,7 +160,9 @@ class Exposure(_Exposure):
                 refcat_radius=0.7,
                 radius=np.arange(3, 13))
 
-            store_aperture_catalog(apcat, self.path / 'apcat.parquet')
+            apcat_path = self.path / ('apcat.parquet' if corr_pocket else 'apcat_nopocketcorr.parquet')
+            store_aperture_catalog(apcat, apcat_path)
+
 
         else:
             image_path = pathlib.Path(get_file(self.name + "_sciimg.fits", downloadit=False))
