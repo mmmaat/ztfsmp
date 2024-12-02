@@ -141,6 +141,32 @@ class Exposure(_Exposure):
                 corr_pocket=kwargs['corr_pocket'],
                 outpath=self.path)
             image_path = pathlib.Path(paths[self.qid-1])
+
+            quadrant = ScienceQuadrant.from_filename(
+                str(image_path), as_path=True, download=False)
+            if quadrant.mask is None:
+                raise ValueError(f'cannot get aperture, no mask for {self.raw_name}')
+            if quadrant.qid is None:
+                raise ValueError(f'cannot get aperture, no header for {self.raw_name}')
+
+            apcat = get_aperture_photometry(
+                quadrant,
+                cat="gaia_dr3",
+                apply_proper_motion=True,
+                as_path=False,
+                minimal_columns=True,
+                seplimit=20,
+                bkgann=None,
+                joined=True,
+                refcat_radius=0.7,
+                radius=np.arange(3, 13))
+
+            apcat_path = self.path / (
+                'apcat.parquet' if kwargs['corr_pocket']
+                else 'apcat_nopocketcorr.parquet')
+            store_aperture_catalog(apcat, apcat_path)
+
+
         elif 'ztfin2p3' in self.name:
             from ztfin2p3.io import ipacfilename_to_ztfin2p3filepath
             image_path = pathlib.Path(ipacfilename_to_ztfin2p3filepath("ztf" + self.name[8:] + "_sciimg.fits"))

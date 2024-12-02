@@ -57,7 +57,7 @@ make_catalog_rm = [
 make_catalog_parameters = [
     {'name': 'ztfin2p3_detrend', 'type': bool, 'default': False, 'desc': ""},
     {'name': 'pocket_correction', 'type': str, 'default': '201911',
-     'desc': 'correct pocket effect for exposures. If "true" or "false" do (or don\'t) do it for all images. If a date, in format YYYYMM, correct pocket effect only for images captured after this date. Has effect only if ztfin2p3_detrend is True'}]
+     'desc': 'correct pocket effect for exposures. If "True" or "False" do (or don\'t) do it for all images. If a date, in format YYYYMM, correct pocket effect only for images captured after this date. Has effect only if ztfin2p3_detrend is True'}]
 
 register_op('make_catalog', map_op=make_catalog, rm_list=make_catalog_rm, parameters=make_catalog_parameters)
 

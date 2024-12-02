@@ -314,9 +314,10 @@ def retrieve_catalogs(lightcurve, logger, args, op_args):
 
     return True
 
-register_op('retrieve_catalogs', reduce_op=retrieve_catalogs, parameters=[{'name': 'force_retrieve', 'type': bool, 'default': False, 'desc': "If set, force catalog retrieving even if already present on disc"},
-                                                                          {'name': 'ext_catalog_cache_path', 'type': pathlib.Path, 'default': None, 'desc': "Path for the external catalog cache folder"},
-                                                                          {'name': 'ubercal_config_path', 'type': pathlib.Path, 'default': None, 'desc': "Path for the Ubercal catalog config file"}])
+register_op('retrieve_catalogs', reduce_op=retrieve_catalogs, parameters=[
+    {'name': 'force_retrieve', 'type': bool, 'default': False, 'desc': "If set, force catalog retrieving even if already present on disc"},
+    {'name': 'ext_catalog_cache_path', 'type': pathlib.Path, 'default': None, 'desc': "Path for the external catalog cache folder"},
+    {'name': 'ubercal_config_path', 'type': pathlib.Path, 'default': None, 'desc': "Path for the Ubercal catalog config file"}])
 
 
 def plot_catalogs(lightcurve, logger, args):
