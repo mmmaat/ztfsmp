@@ -44,7 +44,7 @@ Issues = "https://github.com/lacroixle/ztfsmp/issues"
 Source = "https://github.com/lacroixle/ztfsmp"
 
 [project.scripts]
-ztfsmp-pipeline = "ztfsmp.ztfsmp_pipeline:main"
+ztfsmp-pipeline = "ztfsmp.ztfsmp_pipeline_nodask:main"
 ztfsmp-prepare = "ztfsmp.ztfsmp_prepare:main"
 ztfsmp-prepare-quadrants = "ztfsmp.ztfsmp_prepare_quadrants:main"
 ztfsmp-prod = "ztfsmp.ztfsmp_prod:main"
