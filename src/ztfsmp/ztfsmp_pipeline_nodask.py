@@ -8,18 +8,18 @@ import datetime
 import time
 import shutil
 import sys
-import socket
-import copy
 import traceback
-import yaml
 import importlib
 
-from dask import delayed, compute, visualize
-from dask.distributed import Client, LocalCluster, wait, get_worker
-from dask_jobqueue import SLURMCluster
-from dask.graph_manipulation import bind, checkpoint
+# from dask import delayed, compute, visualize
+# from dask.distributed import Client, LocalCluster, wait, get_worker
+# from dask_jobqueue import SLURMCluster
+# from dask.graph_manipulation import bind, checkpoint
+# from dask import config as cfg
+
+import joblib
 import pandas as pd
-from dask import config as cfg
+import yaml
 
 from ztfsmp.pipeline import pipeline
 from ztfsmp.lightcurve import Exposure, Lightcurve
@@ -33,7 +33,7 @@ from ztfsmp.pipeline_utils import (
     noprocess_quadrants)
 
 
-cfg.set({'distributed.scheduler.worker-ttl': None})
+# cfg.set({'distributed.scheduler.worker-ttl': None})
 
 ztf_filtercodes = ['zg', 'zr', 'zi', 'all']
 
@@ -85,8 +85,8 @@ def map_op(exposure_name, wd, name, filtercode, func, args, op_args):
             if args.exposure_workspace:
                 # If exposure working directory is specified (such as using
                 # /dev/shm), rebuild the exposure object accordingly
-                exposure_workspace = args.exposure_workspace.joinpath(exposure_name)
-                shutil.copytree(exposure_path, exposure_workspace, symlinks=False, dirs_exist_ok=True, copy_function=shutil.copyfile)
+                exposure_workspace = args.exposure_workspace / exposure_name
+                shutil.copytree(exposure_path, exposure_workspace, symlinks=False, dirs_exist_ok=True)
                 exposure_path = exposure_workspace
                 exposure = Exposure(Lightcurve(name, filtercode, wd), exposure_name, path=exposure_path)
 
@@ -137,9 +137,7 @@ def map_op(exposure_name, wd, name, filtercode, func, args, op_args):
                     exposure_path.joinpath("elixir.fits").unlink(missing_ok=True)
                     shutil.copytree(
                         exposure_path,
-                        wd.joinpath("{}/{}/{}".format(name, filtercode, exposure_name)),
-                        dirs_exist_ok=True,
-                        copy_function=shutil.copyfile)
+                        wd.joinpath("{}/{}/{}".format(name, filtercode, exposure_name)), dirs_exist_ok=True)
                     logger.info("Erasing exposure data from temporary working directory.")
                     shutil.rmtree(exposure_path)
 
@@ -173,7 +171,8 @@ def reduce_op(wd, name, filtercode, func, save_stats, args, op_args):
     if func != 'clean' and (pipeline.ops[func]['reduce_op'] is not None):
         logger = logging.getLogger("{}-{}".format(name, filtercode))
         if not logger.handlers:
-            logger.addHandler(logging.FileHandler(lightcurve_path.joinpath("output.log"), mode='a'))
+            logger.addHandler(
+                logging.FileHandler(lightcurve_path / "output.log", mode='a'))
             ch = logging.StreamHandler()
             ch.setFormatter(logging.Formatter("%(asctime)s;%(levelname)s;%(message)s"))
             logger.addHandler(ch)
@@ -233,49 +232,104 @@ def reduce_op(wd, name, filtercode, func, save_stats, args, op_args):
 
 
 def main():
-    print(len(pipeline.ops))
     argparser = RunArguments(description="")
     argparser.add_argument(
         '--run-arguments', type=pathlib.Path,
         help="")
     argparser.add_argument(
         '--ztfname', type=str,
-        help="If provided, perform computation on one SN1a. If it points to a valid text file, will perform computation on all keys. If not provided, process the whole working directory.")
+        help="""If provided, perform computation on one SN1a. If it points to a
+        valid text file, will perform computation on all keys. If not provided,
+        process the whole working directory.""")
     argparser.add_argument(
-        '-j', '--n_proc', dest='n_jobs', type=int, default=1)
+        '-j', '--njobs', dest='njobs', type=int, default=1,
+        help='number of processesto execute in parallel')
     argparser.add_argument(
         '--wd', type=pathlib.Path, help="Working directory", required=True)
-    argparser.add_argument('--filtercode', choices=ztf_filtercodes, default='all', help="Only perform computations on one or all filters.")
-    argparser.add_argument('--func', type=str, help="Pipeline function file to run. {} registered functions.".format(len(pipeline.ops)), required=True)
-    argparser.add_argument('--no-map', dest='no_map', action='store_true', help="Skip map operations.")
-    argparser.add_argument('--no-reduce', dest='no_reduce', action='store_true', help="Skip reduce operations.")
-    argparser.add_argument('--cluster-worker', type=int, default=0)
-    argparser.add_argument('--scratch', type=pathlib.Path, help="")
-    argparser.add_argument('--from-scratch', action='store_true', help="When using scratch, does not transfer from distant directory first.")
-    argparser.add_argument('--exposure-workspace', type=pathlib.Path, help="Exposure workspace directory to use instead of the one given by --wd. Useful to acceleratre IOs by moving onto a SSD disk or in memory mapped filesystem.")
-    argparser.add_argument('--lc-folder', dest='lc_folder', type=pathlib.Path)
-    argparser.add_argument('--dump-timings', action='store_true')
-    argparser.add_argument('--rm-intermediates', action='store_true', help="Remove intermediate files.")
-    argparser.add_argument('--synchronous-compute', action='store_true', help="Run computation synchronously on the main thread. Usefull for debugging and plotting on the fly.")
-    argparser.add_argument('--log-std', action='store_true', help="If set, output log to standard output.")
-    argparser.add_argument('--use-raw', action='store_true', help="If set, uses raw images instead of science images.")
-    argparser.add_argument('--discard-calibrated', action='store_true')
-    argparser.add_argument('--dump-hw-infos', action='store_true', help="If set, dump hardware informations.")
-    argparser.add_argument('--log-overwrite', action='store_true', help="If set, all logs will be overwritten.")
-    argparser.add_argument('--parallel-reduce', action='store_true', help="If set, parallelize reduce operations (if op has a parallel codepath).")
-    argparser.add_argument('--compress', action='store_true', help="If set, work with compressed working directory")
-    argparser.add_argument('--ztfin2p3-path', type=pathlib.Path)
-    argparser.add_argument('--ext-catalog-cache', type=pathlib.Path)
-    argparser.add_argument('--footprints', type=pathlib.Path)
-    argparser.add_argument('--starflats', action='store_true', help="Indicates we are processing starflats. This changes some behaviours in the pipeline (for example no PS1 catalog gets retrieved).")
-    argparser.add_argument('--photom-use-aper', action='store_true', help="Use aperture catalog for relative photometry.")
-    argparser.add_argument('--ubercal-config-path', type=pathlib.Path, help="Path of the Ubercal configuration file.")
-    argparser.add_argument('--slurm', action='store_true', help="Assumes computations are run in a SLURM environnement")
-    argparser.add_argument('--list-ops', action='store_true', help="List available pipeline operations.")
+    argparser.add_argument(
+        '--filtercode', choices=ztf_filtercodes, default='all',
+        help="Only perform computations on one or all filters.")
+    argparser.add_argument(
+        '--func', type=str, required=True,
+        help="Pipeline function file to run. {} registered functions.".format(
+            len(pipeline.ops)))
+    argparser.add_argument(
+        '--no-map', dest='no_map', action='store_true', help="Skip map operations.")
+    argparser.add_argument(
+        '--no-reduce', dest='no_reduce', action='store_true', help="Skip reduce operations.")
+    # argparser.add_argument(
+    #     '--cluster-worker', type=int, default=0)
+    argparser.add_argument(
+        '--scratch', type=pathlib.Path, help="")
+    argparser.add_argument(
+        '--from-scratch', action='store_true',
+        help="When using scratch, does not transfer from distant directory first.")
+    argparser.add_argument(
+        '--exposure-workspace', type=pathlib.Path,
+        help="""Exposure workspace directory to use instead of the one given by
+        --wd. Useful to acceleratre IOs by moving onto a SSD disk or in memory
+        mapped filesystem.""")
+    argparser.add_argument(
+        '--lc-folder', dest='lc_folder', type=pathlib.Path)
+    argparser.add_argument(
+        '--dump-timings', action='store_true')
+    argparser.add_argument(
+        '--rm-intermediates', action='store_true',
+        help="Remove intermediate files.")
+    # argparser.add_argument(
+    #     '--synchronous-compute', action='store_true',
+    #     help="""Run computation synchronously on the main thread. Usefull for
+    #     debugging and plotting on the fly.""")
+    # argparser.add_argument(
+    #     '--log-std', action='store_true',
+    #     help="If set, output log to standard output.")
+    # argparser.add_argument(
+    #     '--use-raw', action='store_true',
+    #     help="If set, uses raw images instead of science images.")
+    argparser.add_argument(
+        '--discard-calibrated', action='store_true')
+    argparser.add_argument(
+        '--dump-hw-infos', action='store_true',
+        help="If set, dump hardware informations.")
+    # argparser.add_argument(
+    #     '--log-overwrite', action='store_true',
+    #     help="If set, all logs will be overwritten.")
+    argparser.add_argument(
+        '--parallel-reduce', action='store_true',
+        help="If set, parallelize reduce operations (if op has a parallel codepath).")
+    argparser.add_argument(
+        '--compress', action='store_true',
+        help="If set, work with compressed working directory")
+    argparser.add_argument(
+        '--ztfin2p3-path', type=pathlib.Path)
+    argparser.add_argument(
+        '--ext-catalog-cache', type=pathlib.Path)
+    argparser.add_argument(
+        '--footprints', type=pathlib.Path)
+    argparser.add_argument(
+        '--starflats', action='store_true',
+        help="""Indicates we are processing starflats. This changes some
+        behaviours in the pipeline (for example no PS1 catalog gets
+        retrieved).""")
+    argparser.add_argument(
+        '--photom-use-aper', action='store_true',
+        help="Use aperture catalog for relative photometry.")
+    argparser.add_argument(
+        '--ubercal-config-path', type=pathlib.Path,
+        help="Path of the Ubercal configuration file.")
+    argparser.add_argument(
+        '--slurm', action='store_true',
+        help="Assumes computations are run in a SLURM environnement")
+    argparser.add_argument(
+        '--list-ops', action='store_true',
+        help="List available pipeline operations.")
 
     logger = logging.getLogger("main")
 
     args = argparser.parse_args()
+
+    for k, v in vars(args).items():
+        print(k, v)
 
     filtercodes = ztf_filtercodes[:3]
     if args.filtercode != 'all':
@@ -316,47 +370,47 @@ def main():
     #         atexit.register(delete_tree_at_exit, tree_path=args.scratch)
 
     # Allocate cluster
-    if args.cluster_worker > 0:
-        cluster = SLURMCluster(cores=args.n_jobs,
-                               processes=args.n_jobs,
-                               memory="{}GB".format(6*args.n_jobs),
-                               account="ztf",
-                               walltime="6-0",
-                               queue="htc",
-                               job_extra_directives=["-L sps"],
-                               local_directory=os.getenv('TMPDIR', default="."))
+    # if args.cluster_worker > 0:
+    #     cluster = SLURMCluster(cores=args.n_jobs,
+    #                            processes=args.n_jobs,
+    #                            memory="{}GB".format(6*args.n_jobs),
+    #                            account="ztf",
+    #                            walltime="6-0",
+    #                            queue="htc",
+    #                            job_extra_directives=["-L sps"],
+    #                            local_directory=os.getenv('TMPDIR', default="."))
 
-        cluster.scale(jobs=args.cluster_worker)
-        client = Client(cluster)
-        print(client.dashboard_link, flush=True)
-        print(socket.gethostname(), flush=True)
-        print("Running {} workers with {} processes each ({} total).".format(
-            args.cluster_worker, args.n_jobs, args.cluster_worker*args.n_jobs))
-        client.wait_for_workers(1)
-    elif not args.synchronous_compute:
-        localCluster = LocalCluster(
-            n_workers=args.n_jobs,
-            memory_limit=None,
-            processes=True,
-            threads_per_worker=1,
-            local_directory="{}/dask-workers".format(os.getenv('TMPDIR', default=".")))
-        client = Client(localCluster)
+    #     cluster.scale(jobs=args.cluster_worker)
+    #     client = Client(cluster)
+    #     print(client.dashboard_link, flush=True)
+    #     print(socket.gethostname(), flush=True)
+    #     print("Running {} workers with {} processes each ({} total).".format(
+    #         args.cluster_worker, args.n_jobs, args.cluster_worker*args.n_jobs))
+    #     client.wait_for_workers(1)
+    # elif not args.synchronous_compute:
+    #     localCluster = LocalCluster(
+    #         n_workers=args.n_jobs,
+    #         memory_limit=None,
+    #         processes=True,
+    #         threads_per_worker=1,
+    #         local_directory="{}/dask-workers".format(os.getenv('TMPDIR', default=".")))
+    #     client = Client(localCluster)
 
-        print("Running a local cluster with {} processes.".format(args.n_jobs))
-        print("Dask dashboard at: {}".format(client.dashboard_link))
-    else:
-        print("Running computations synchronously.")
+    #     print("Running a local cluster with {} processes.".format(args.n_jobs))
+    #     print("Dask dashboard at: {}".format(client.dashboard_link))
+    # else:
+    #     print("Running computations synchronously.")
 
-    jobs = []
-    map_count = 0
-    reduction_count = 0
-    map_count = 0
+    # jobs = []
+    # map_count = 0
+    # reduction_count = 0
+    # map_count = 0
 
-    # Rename compute functions to get better reporting on the dask dashboard
-    def _rename_op(op, op_name):
-        _op = op
-        _op.__name__ = op_name
-        return _op
+    # # Rename compute functions to get better reporting on the dask dashboard
+    # def _rename_op(op, op_name):
+    #     _op = op
+    #     _op.__name__ = op_name
+    #     return _op
 
     # If requested, move relevant data into a temporary folder, e.g. stratch
     print("", flush=True)
@@ -364,20 +418,32 @@ def main():
         print(f"Moving data into scratch folder: {args.scratch}", flush=True)
         for ztfname in ztfnames:
             for filtercode in filtercodes:
-                band_path = args.wd.joinpath("{}/{}".format(ztfname, filtercode))
+                band_path = args.wd / ztfname / filtercode
                 if band_path.exists():
-                    scratch_band_path = args.scratch.joinpath("{}/{}".format(ztfname, filtercode))
-                    print("Moving {}-{} into {}".format(ztfname, filtercode, scratch_band_path), flush=True)
+                    scratch_band_path = args.scratch / ztfname / filtercode
+                    print("Moving {}-{} into {}".format(
+                        ztfname, filtercode, scratch_band_path), flush=True)
                     shutil.rmtree(scratch_band_path, ignore_errors=True)
-                    quadrant_folder = args.wd.joinpath("{}/{}".format(ztfname, filtercode))
+
+                    quadrant_folder = args.wd / ztfname / filtercode
                     if args.from_scratch:
                         def _from_scratch_ignore(current_folder, files):
                             to_copy = [".dbstuff", "elixir.fits", "dead.fits.gz"]
-                            to_ignore = [str(f) for f in map(lambda x: pathlib.Path(x), files) if (str(f.name) not in to_copy) and not (pathlib.Path(current_folder).joinpath(f).is_dir() and str(f)[:4] == "ztf_")]
+                            to_ignore = [
+                                str(f) for f in map(lambda x: pathlib.Path(x), files)
+                                if (str(f.name) not in to_copy)
+                                and not (pathlib.Path(current_folder).joinpath(f).is_dir()
+                                         and str(f)[:4] == "ztf_")]
                             return to_ignore
-                        shutil.copytree(band_path, scratch_band_path, symlinks=True, dirs_exist_ok=True, ignore=_from_scratch_ignore, copy_function=shutil.copyfile)
+                        shutil.copytree(
+                            band_path, scratch_band_path,
+                            symlinks=True, dirs_exist_ok=True,
+                            ignore=_from_scratch_ignore)
                     else:
-                        shutil.copytree(args.wd.joinpath("{}/{}".format(ztfname, filtercode)), scratch_band_path, symlinks=True, copy_function=shutil.copyfile)
+                        shutil.copytree(
+                            args.wd / ztfname / filtercode,
+                            scratch_band_path,
+                            symlinks=True)
 
     # if args.compress:
     #     for ztfname in ztfnames:
@@ -400,21 +466,23 @@ def main():
         for filtercode in filtercodes:
             cd = args.scratch or args.wd
 
-            if cd.joinpath("{}/{}/exposures.tar".format(ztfname, filtercode)).exists():
+            if (cd / ztfname / filtercode).exists():
                 print("Uncompressing {}-{} into {}... ".format(ztfname, filtercode, cd), end="", flush=True)
                 lightcurve = Lightcurve(ztfname, filtercode, cd)
                 lightcurve.uncompress()
                 print("Done")
 
     # Build compute tree
+    start_time = time.perf_counter()
+
     for ztfname in ztfnames:
         for filtercode in filtercodes:
-            print("Building compute tree for {}-{}... ".format(ztfname, filtercode), flush=True, end="")
+            print("Computing {}-{}... ".format(ztfname, filtercode))
 
             if args.scratch:
-                band_path = args.scratch.joinpath("{}/{}".format(ztfname, filtercode))
+                band_path = args.scratch / ztfname / filtercode
             else:
-                band_path = args.wd.joinpath("{}/{}".format(ztfname, filtercode))
+                band_path = args.wd / ztfname / filtercode
 
             if not band_path.exists():
                 print("No quadrant found.")
@@ -429,11 +497,11 @@ def main():
             else:
                 run_count = len(list(band_path.glob("run_arguments_full_*.yaml")))
 
-            shutil.copy(args.func, band_path.joinpath("run_pipeline_{}.txt".format(run_count)))
+            shutil.copy(args.func, band_path / f"run_pipeline_{run_count}.txt")
             if args.run_arguments:
-                shutil.copy(args.run_arguments, band_path.joinpath("run_arguments_{}.txt".format(run_count)))
+                shutil.copy(args.run_arguments, band_path / f"run_arguments_{run_count}.txt")
 
-            with open(band_path.joinpath("run_arguments_full_{}.yaml".format(run_count)), 'w') as f:
+            with open(band_path / f"run_arguments_full_{run_count}.yaml", 'w') as f:
                 d = dict(vars(args))
                 for key in d.keys():
                     if isinstance(d[key], pathlib.Path):
@@ -454,14 +522,10 @@ def main():
             if args.dump_hw_infos:
                 dump_hw_infos(args.scratch, band_path.joinpath("run_hw_infos_{}.txt".format(run_count)))
 
-            quadrants = quadrants_from_band_path(band_path, logger, paths=False, ignore_noprocess=True)
+            quadrants = quadrants_from_band_path(
+                band_path, logger, paths=False, ignore_noprocess=True)
             print("{} quadrants found.".format(len(quadrants)))
 
-            sn_jobs = []
-            map_jobs = []
-            reduce_job = None
-            sn_job = None
-            last_job = None
             for op_desc in pipeline.pipeline_desc:
                 op_name = op_desc['op']
                 op_parameters = op_desc['parameters']
@@ -469,71 +533,25 @@ def main():
                 if args.scratch and op_name != 'clean':
                     wd = args.scratch
 
-                print("Pipeline operation \"{}\". ".format(op_name), flush=True, end="")
-                map_run = False
-                if (pipeline.ops[op_name]['map_op'] is not None) and (not args.no_map):
-                    map_run = True
-                    map_count += len(quadrants)
-                    print("(building map jobs)", flush=True, end="")
-                    #map_jobs = [delayed(_rename_op(map_op, op_name + "_map"))(quadrant, wd, ztfname, filtercode, pipeline.ops[op_name]['map_op'], args, op_parameters) for quadrant in quadrants]
-                    map_jobs = [delayed(_rename_op(map_op, op_name + "_map"))(
+                print("Pipeline operation \"{}\". ".format(op_name))
+                if (pipeline.ops[op_name]['map_op'] is not None) and not args.no_map:
+                    map_jobs = joblib.Parallel(n_jobs=args.njobs, verbose=10)(
+                        joblib.delayed(map_op)(
                             quadrant, wd, ztfname, filtercode, op_name, args, op_parameters)
-                                for quadrant in quadrants]
-
-                    if last_job is not None:
-                        print("(checkpoint)", flush=True, end="")
-                        map_job = checkpoint(map_jobs)
-                        print("(binding)", flush=True, end="")
-                        map_job = bind(map_job, last_job)
-                    else:
-                        map_job = map_jobs
-
-                    print("{} map operations. ".format(len(quadrants)), end="", flush=True)
-                else:
-                    map_job = None
+                                for quadrant in quadrants)
 
                 if ((pipeline.ops[op_name]['reduce_op'] is not None) or args.dump_timings) and not args.no_reduce:
-                    print("(building reduce job)", flush=True, end="")
-                    #reduce_job = delayed(_rename_op(reduce_op, op_name + "_reduce"))(wd, ztfname, filtercode, pipeline.ops[op_name]['reduce_op'], True, args, op_parameters)
-                    reduce_job = delayed(_rename_op(reduce_op, op_name + "_reduce"))(wd, ztfname, filtercode, op_name, True, args, op_parameters)
-                    print("(binding)", flush=True, end="")
-                    if map_job is not None:
-                        last_job = bind(reduce_job, map_job)
-                    else:
-                        last_job = bind(reduce_job, last_job)
+                    reduce_job = reduce_op(
+                        wd, ztfname, filtercode, op_name, True, args, op_parameters)
 
-                    reduction_count += 1
-                    print("Reduction operation.", end="", flush=True)
-                elif map_run:
-                    last_job = checkpoint(map_job)
-
-                print("")
-
-            jobs.append(last_job)
-
-    print("")
-    print("Running. ", end="", flush=True)
-
-    if map_count > 0:
-        print("Processing {} mappings. ".format(map_count), end="", flush=True)
-
-    if reduction_count > 0:
-        print("Processing {} reductions.".format(reduction_count), end="", flush=True)
-
-    print("", flush=True)
-
-    start_time = time.perf_counter()
-    if args.synchronous_compute:
-        compute(jobs, scheduler="sync")
-    else:
-        fjobs = client.compute(jobs)
-        wait(fjobs)
 
     end_time = time.perf_counter()
 
     print("Done. Elapsed time={}".format(end_time - start_time))
     if len(ztfnames) == 1 and len(filtercodes) == 1:
-        dump_timings(start_time, end_time, args.wd.joinpath("{}/{}/timings_total".format(ztfnames[0], filtercodes[0])))
+        dump_timings(
+            start_time, end_time,
+            args.wd / ztfnames[0] / filtercodes[0] / "timings_total")
 
     # commented out because causng a timeout crash before the data is moved to wd
     # if not args.synchronous_compute:
@@ -550,7 +568,7 @@ def main():
             to_ignore.extend(["calibrated.fits", "weight.fz"])
 
         print("Ignoring files {}".format(to_ignore))
-        shutil.copytree(args.scratch, args.wd, dirs_exist_ok=True, ignore=shutil.ignore_patterns(*to_ignore), copy_function=shutil.copyfile)
+        shutil.copytree(args.scratch, args.wd, dirs_exist_ok=True, ignore=shutil.ignore_patterns(*to_ignore))
         shutil.rmtree(args.scratch)
         print("Done")
 
@@ -564,6 +582,7 @@ def main():
                     lightcurve = Lightcurve(ztfname, filtercode, args.wd)
                     lightcurve.compress()
                     print("Done")
+
 
 if __name__ == '__main__':
     sys.exit(main())
