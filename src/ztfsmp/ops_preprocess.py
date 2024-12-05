@@ -12,13 +12,12 @@ def _get_corr_pocket(arg, exposure, logger):
     if arg == 'false':
         logger.info('Ignoring pocket effect correction')
         return False
-    else:  # assumes this is a date in YYYYMM format
-        corr_pocket = exposure.yyyymm >= arg
+    else:  # assumes this is a date in YYYYMMDD format
+        corr_pocket = exposure.yyyymmdd >= arg
         logger.info(
             "Exposure date is %s, %s pocket effect correction",
-            exposure.yyyymm, 'applying' if corr_pocket else 'ignoring')
+            exposure.yyyymmdd, 'applying' if corr_pocket else 'ignoring')
         return corr_pocket
-
 
 
 def make_catalog(exposure, logger, args, op_args):
@@ -57,7 +56,7 @@ make_catalog_rm = [
 make_catalog_parameters = [
     {'name': 'ztfin2p3_detrend', 'type': bool, 'default': False, 'desc': ""},
     {'name': 'pocket_correction', 'type': str, 'default': '201911',
-     'desc': 'correct pocket effect for exposures. If "True" or "False" do (or don\'t) do it for all images. If a date, in format YYYYMM, correct pocket effect only for images captured after this date. Has effect only if ztfin2p3_detrend is True'}]
+     'desc': 'correct pocket effect for exposures. If "True" or "False" do (or don\'t) do it for all images. If a date, in format YYYYMMDD, correct pocket effect only for images captured after this date. Has effect only if ztfin2p3_detrend is True'}]
 
 register_op('make_catalog', map_op=make_catalog, rm_list=make_catalog_rm, parameters=make_catalog_parameters)
 
