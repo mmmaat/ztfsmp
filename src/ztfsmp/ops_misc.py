@@ -66,8 +66,9 @@ def retrieve_catalogs(lightcurve, logger, args, op_args):
     # Retrieve Gaia and PS1 catalogs
     exposures = lightcurve.get_exposures()
 
-    # If all exposures are in the primary or secondary field grids, their positions are already known and headers are not needed
-    # If a footprint file is provided, use those
+    # If all exposures are in the primary or secondary field grids, their
+    # positions are already known and headers are not needed If a footprint
+    # file is provided, use those
     if args.footprints:
         footprints_df = pd.read_csv(args.footprints)
         footprints_df = footprints_df.loc[footprints_df['year']==int(lightcurve.name)].loc[footprints_df['filtercode']==lightcurve.filterid]
@@ -158,8 +159,9 @@ def retrieve_catalogs(lightcurve, logger, args, op_args):
                 # Change proper motion units
                 # catalog_df['pmRA'] = catalog_df['pmRA']/np.cos(np.deg2rad(catalog_df['dec']))/1000./3600./365.25 # TODO: check if dec should be J2000 or something else
                 # catalog_df['pmDE'] = catalog_df['pmDE']/1000./3600./365.25
-                catalog_df = catalog_df.assign(pmRA=catalog_df['pmRA']/np.cos(np.deg2rad(catalog_df['dec']))/1000./3600./365.25,
-                                               pmDE=catalog_df['pmDE']/1000./3600./365.25)
+                catalog_df = catalog_df.assign(
+                    pmRA=catalog_df['pmRA']/np.cos(np.deg2rad(catalog_df['dec']))/1000./3600./365.25,
+                    pmDE=catalog_df['pmDE']/1000./3600./365.25)
 
                 # catalog_df = catalog_df.loc[catalog_df['Gmag'] >= 10.]
                 # catalog_df = catalog_df.loc[catalog_df['Gmag'] <= 23.]
@@ -637,7 +639,17 @@ def match_catalogs(exposure, logger, args, op_args):
         hdfstore.put('cat_indices', pd.Series(cat_indices))
         hdfstore.put('ext_cat_inside', pd.Series(gaia_stars_inside))
 
-    return True
+        #return True
+    return dict(
+        psfstars_indices=pd.Series(psf_indices),
+        aperstars_indices=pd.Series(aper_indices),
+        ext_cat_indices=pd.DataFrame(
+            {'x': gaia_stars_x[gaia_indices],
+             'y': gaia_stars_y[gaia_indices],
+             'indices': gaia_indices}),
+        cat_indices=pd.Series(cat_indices),
+        ext_cat_inside=pd.Series(gaia_stars_inside))
+
 
 register_op('match_catalogs', map_op=match_catalogs)
 

@@ -390,7 +390,9 @@ class Lightcurve(_Lightcurve):
         if is_compressed:
             self.uncompress()
 
-        self.__exposures = dict([(exposure_path.name, Exposure(self, exposure_path.name)) for exposure_path in list(self.__path.glob(exposure_regexp))])
+        self.__exposures = dict([(
+            exposure_path.name, Exposure(self, exposure_path.name))
+                                 for exposure_path in list(self.__path.glob(exposure_regexp))])
 
 
     @property

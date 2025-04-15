@@ -9,7 +9,34 @@ import json
 import yaml
 import tarfile
 import shutil
+import shlex
 
+
+def run_and_log_apptainer(cmd, img='docker://ztfsmp/poloka:rh9_1.0', logger=None, return_log=False):
+    if logger:
+        logger.info("Running command: \"{}\"".format(" ".join([str(s) for s in cmd])))
+        start_time = time.perf_counter()
+
+    cmd = f'apptainer exec --bind /scratch,/sps/ztf {img} {" ".join((str(c) for c in cmd))}'
+
+    out = subprocess.run(
+        shlex.split(cmd),
+        env=os.environ,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        universal_newlines=True)
+
+    if logger:
+        logger.info("Done running command. Elapsed time={}".format(time.perf_counter() - start_time))
+        logger.info("Command stdout/stderr output:")
+        logger.info(out.stdout)
+        logger.info("=========================== output end ===========================")
+
+    if return_log:
+        return out.returncode, out.stdout
+
+    return out.returncode
 
 
 def run_and_log(cmd, logger=None, return_log=False):
@@ -121,4 +148,3 @@ def update_yaml(path, key, value):
     with open(path, 'w') as f:
         _yaml[key] = value
         yaml.dump(_yaml, f)
-

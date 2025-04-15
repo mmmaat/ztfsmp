@@ -24,8 +24,9 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = ["imageproc",
-                "saunerie",
+dependencies = [
+                #"imageproc",
+                #"saunerie",
                 "croaks",
                 "ztfquery",
                 "dask",

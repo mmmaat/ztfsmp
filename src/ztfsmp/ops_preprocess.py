@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from ztfsmp.pipeline_utils import run_and_log
+from ztfsmp.pipeline_utils import run_and_log, run_and_log_apptainer
 from ztfsmp.pipeline import register_op
 
 
@@ -38,7 +38,8 @@ def make_catalog(exposure, logger, args, op_args):
 
     logger.info("Found at {}".format(image_path))
 
-    run_and_log(["make_catalog", exposure.path, "-O", "-S"], logger)
+    (exposure.path / '.dbstuff').touch()
+    run_and_log_apptainer(["make_catalog", exposure.path, "-O", "-S"], logger=logger)
 
     logger.info("Dumping header content")
     exposure.update_exposure_header()
@@ -72,7 +73,7 @@ def mkcat2(exposure, logger, args, op_args):
     from ztfsmp.misc_utils import contained_in_exposure, sc_array, match_pixel_space
     from ztfsmp.ext_cat_utils import j2000mjd
 
-    run_and_log(["mkcat2", exposure.path, "-o"], logger)
+    run_and_log_apptainer(["mkcat2", exposure.path, "-o"], logger=logger)
 
     if not exposure.path.joinpath("standalone_stars.list").exists():
         return False
@@ -170,17 +171,37 @@ def mkcat2(exposure, logger, args, op_args):
     return exposure.path.joinpath("standalone_stars.list").exists()
 
 mkcat2_rm = []
-mkcat2_parameters = [{'name': 'use_gaia_stars', 'type': bool, 'default': True, 'desc': "Use Gaia catalog to identify stars."},
-                     {'name': 'isolated_star_distance', 'type': float, 'default': 20., 'desc': "Minimum distance between star to identify them as isolated, in arcsec."},
-                     {'name': 'plot_star_moment_plane', 'type': bool, 'default': False, 'desc': "Plot isolated stars Gaussian centered second moment plane."},
-                     {'name': 'remove_flagged', 'type': bool, 'default': False, 'desc': "Remove stars if flagged bad by sextractor or mkcat2."}]
+mkcat2_parameters = [
+    {
+        'name': 'use_gaia_stars',
+        'type': bool,
+        'default': True,
+        'desc': "Use Gaia catalog to identify stars."
+    },
+    {
+        'name': 'isolated_star_distance',
+        'type': float,
+        'default': 20.,
+        'desc': "Minimum distance between star to identify them as isolated, in arcsec."
+    },
+    {
+        'name': 'plot_star_moment_plane',
+        'type': bool,
+        'default': False,
+        'desc': "Plot isolated stars Gaussian centered second moment plane."
+    },
+    {
+        'name': 'remove_flagged',
+        'type': bool,
+        'default': False,
+        'desc': "Remove stars if flagged bad by sextractor or mkcat2."
+    }]
 
 register_op('mkcat2', map_op=mkcat2, rm_list=mkcat2_rm, parameters=mkcat2_parameters)
 
 
 def makepsf(exposure, logger, args, op_args):
-    run_and_log(["makepsf", exposure.path, "-f"], logger)
-
+    run_and_log_apptainer(["makepsf", exposure.path, "-f"], logger=logger)
     logger.info("Dumping header content")
     exposure.update_exposure_header()
 

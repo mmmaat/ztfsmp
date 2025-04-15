@@ -348,69 +348,12 @@ def main():
             else:
                 pass
 
+    print('Running ztfsmp-pipeline without dask')
     print("Found {} exposure stacks.".format(len(ztfnames)))
 
     pipeline.read_pipeline_from_file(args.func)
     print("Running pipeline:")
     print(" -> ".join([d['op'] for d in pipeline.pipeline_desc]))
-
-    # Temporary folder creation
-    # if args.quadrant_workspace or args.scratch:
-    #     import signal
-    #     import atexit
-    #     def delete_tree_at_exit(tree_path):
-    #         shutil.rmtree(tree_path, ignore_errors=True)
-
-    #     if args.quadrant_workspace:
-    #         args.quadrant_workspace.mkdir(exist_ok=True, parents=True)
-    #         atexit.register(delete_tree_at_exit, tree_path=args.quadrant_workspace)
-
-    #     if args.scratch:
-    #         args.scratch.mkdir(exist_ok=True, parents=True)
-    #         atexit.register(delete_tree_at_exit, tree_path=args.scratch)
-
-    # Allocate cluster
-    # if args.cluster_worker > 0:
-    #     cluster = SLURMCluster(cores=args.n_jobs,
-    #                            processes=args.n_jobs,
-    #                            memory="{}GB".format(6*args.n_jobs),
-    #                            account="ztf",
-    #                            walltime="6-0",
-    #                            queue="htc",
-    #                            job_extra_directives=["-L sps"],
-    #                            local_directory=os.getenv('TMPDIR', default="."))
-
-    #     cluster.scale(jobs=args.cluster_worker)
-    #     client = Client(cluster)
-    #     print(client.dashboard_link, flush=True)
-    #     print(socket.gethostname(), flush=True)
-    #     print("Running {} workers with {} processes each ({} total).".format(
-    #         args.cluster_worker, args.n_jobs, args.cluster_worker*args.n_jobs))
-    #     client.wait_for_workers(1)
-    # elif not args.synchronous_compute:
-    #     localCluster = LocalCluster(
-    #         n_workers=args.n_jobs,
-    #         memory_limit=None,
-    #         processes=True,
-    #         threads_per_worker=1,
-    #         local_directory="{}/dask-workers".format(os.getenv('TMPDIR', default=".")))
-    #     client = Client(localCluster)
-
-    #     print("Running a local cluster with {} processes.".format(args.n_jobs))
-    #     print("Dask dashboard at: {}".format(client.dashboard_link))
-    # else:
-    #     print("Running computations synchronously.")
-
-    # jobs = []
-    # map_count = 0
-    # reduction_count = 0
-    # map_count = 0
-
-    # # Rename compute functions to get better reporting on the dask dashboard
-    # def _rename_op(op, op_name):
-    #     _op = op
-    #     _op.__name__ = op_name
-    #     return _op
 
     # If requested, move relevant data into a temporary folder, e.g. stratch
     print("", flush=True)
