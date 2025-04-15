@@ -11,8 +11,7 @@ from scipy.sparse import dia_matrix
 
 from ztfsmp.pipeline import register_op
 from ztfsmp.ztf_utils import quadrant_width_px, quadrant_height_px
-from ztfsmp.ext_cat_utils import gaiarefmjd
-
+from ztfsmp.ext_cat_utils import gaia_edr3_refmjd
 
 def wcs_residuals(lightcurve, logger, args, op_args):
     """
@@ -198,8 +197,8 @@ class AstromModel():
 
     def __call__(self, x, pm, mjd, exposure_indices, jac=False):
         # Correct for proper motion in tangent plane
-        dT = mjd - gaiarefmjd
-        x = x + pm*dT
+        # dT = mjd - gaia_edr3_refmjd
+        # x = x + pm*dT
 
         if not jac:
             xy = self.tp2px(x, p=self.params, exposure=exposure_indices)
@@ -303,7 +302,13 @@ def astrometry_fit(lightcurve, logger, args, op_args):
 
     # Load data
     logger.info("Generating star catalog")
-    matched_stars_df = lightcurve.extract_star_catalog(['psfstars', 'gaia'])
+    matched_stars_df = lightcurve.extract_star_catalog(['psfstars', 'gaia'], pm_correction=True)
+
+    if not np.isnan(op_args['min_snr']):
+        logger.info("SNR cut={}".format(op_args['min_snr']))
+        N = len(matched_stars_df)
+        matched_stars_df = matched_stars_df.loc[matched_stars_df['psfstars_flux']/matched_stars_df['psfstars_eflux']>=op_args['min_snr']]
+        logger.info("Removed {} measures".format(N-len(matched_stars_df)))
 
     matched_stars_df['mag'] = -2.5*np.log10(matched_stars_df['psfstars_flux'])
     matched_stars_df['emag'] = 1.08*(matched_stars_df['psfstars_eflux']/matched_stars_df['psfstars_flux']).to_numpy()
@@ -313,8 +318,8 @@ def astrometry_fit(lightcurve, logger, args, op_args):
     for column in exposures_df.columns:
         matched_stars_df[column] = exposures_df.loc[matched_stars_df['exposure'], column].to_numpy()
 
-    matched_stars_df.rename({'gaia_ra': 'ra',
-                             'gaia_dec': 'dec',
+    matched_stars_df.rename({'gaia_RA_ICRS': 'ra',
+                             'gaia_DE_ICRS': 'dec',
                              'psfstars_x': 'x',
                              'psfstars_y': 'y',
                              'psfstars_sx': 'sx',
@@ -336,7 +341,8 @@ def astrometry_fit(lightcurve, logger, args, op_args):
 
     if not np.isnan(op_args['min_mag']):
         logger.info("Filtering out faint stars (magnitude cut={} [mag])".format(op_args['min_mag']))
-        matched_stars_df = matched_stars_df.loc[matched_stars_df['mag']<=op_args['min_mag']]
+        # matched_stars_df = matched_stars_df.loc[matched_stars_df['cat_mag']<=op_args['min_mag']]
+        matched_stars_df = matched_stars_df.loc[matched_stars_df['emag']/matched_stars_df['mag']<10.]
         logger.info("N={}".format(len(matched_stars_df)))
 
     astrometry_stats['min_mag'] = op_args['min_mag']
@@ -570,7 +576,8 @@ register_op('astrometry_fit', reduce_op=astrometry_fit, parameters=[{'name': 'de
                                                                     {'name': 'min_mag', 'type': float, 'default': float('nan'), 'desc': "Magnitude cut (in instrumental mag) for stars entering the fit."},
                                                                     {'name': 'piedestal', 'type': float, 'default': 0., 'desc': "Magnitude piedestal to add to measurement errors."},
                                                                     {'name': 'grid_res', 'type': int, 'default': 25, 'desc': "Grid resolution for inverse mapping polynomial fit."},
-                                                                    {'name': 'sn', 'type': bool, 'default': True, 'desc': "If true, center the transformations onto the SN. If False, center the transformations on the reference quadrant center."}])
+                                                                    {'name': 'sn', 'type': bool, 'default': True, 'desc': "If true, center the transformations onto the SN. If False, center the transformations on the reference quadrant center."},
+                                                                    {'name': 'min_snr', 'type': float, 'default': float('nan'), 'desc': "SNR cut for stars entering the fit."}])
 
 def astrometry_fit_plot(lightcurve, logger, args, op_args):
     import pickle
