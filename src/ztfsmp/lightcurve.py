@@ -58,6 +58,10 @@ class _Exposure:
         return self.__day
 
     @property
+    def yyyymm(self):
+        return str(self.year).zfill(4) + str(self.month).zfill(2)
+
+    @property
     def field(self):
         return self.__field
 
