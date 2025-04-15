@@ -19,10 +19,10 @@ def psfstudy_map(exposure, logger, args, op_args):
     matplotlib.use('Agg')
 
     header = exposure.exposure_header
-    expid = int(header['expid'])
+    expid = int(header['dbexpid'])
     mjd = float(header['obsmjd'])
-    ccdid = int(header['ccdid'])
-    qid = int(header['qid'])
+    ccdid = int(header['ccd_id'])
+    qid = int(header['amp_id'])
     skylev = float(header['sexsky'])
     moonillf = float(header['moonillf'])
     seeing = float(header['seeing'])
@@ -48,14 +48,19 @@ def psfstudy_map(exposure, logger, args, op_args):
     delta_mag = aper_df['mag'] - psf_df['mag']
     delta_emag = np.sqrt(psf_df['emag']**2+aper_df['emag']**2)
 
-    G_min, G_max = gaia_df['Gmag'].min(), gaia_df['Gmag'].max()
-    G_linspace = np.linspace(G_min, G_max)
-    bins = np.arange(G_min, G_max, 1.)
+    # G_min, G_max = gaia_df['Gmag'].min(), gaia_df['Gmag'].max()
+    # G_min, G_max = 15., 19.5
+    # G_linspace = np.linspace(G_min, G_max)
+    # bins = np.arange(G_min, G_max, 1.)
+    mag_min, mag_max = psf_df['mag'].min()+1., psf_df['mag'].max()-1.
+    mag_linspace = np.linspace(mag_min, mag_max)
+    bins = np.arange(mag_min, mag_max, 0.5)
 
     plt.subplots(figsize=(10., 4.))
 
     # Bin everything
-    G_binned, delta_mag_binned, delta_emag_binned = binplot(gaia_df['Gmag'].to_numpy(), delta_mag.to_numpy(), robust=True, data=False, scale=True, weights=1./delta_emag.to_numpy(), bins=bins, color='red', lw=2., zorder=15)
+    #G_binned, delta_mag_binned, delta_emag_binned = binplot(gaia_df['Gmag'].to_numpy(), delta_mag.to_numpy(), robust=True, data=False, scale=False, weights=1./delta_emag.to_numpy(), bins=bins, color='red', lw=2., zorder=15)
+    G_binned, delta_mag_binned, delta_emag_binned = binplot(psf_df['mag'].to_numpy(), delta_mag.to_numpy(), robust=True, data=False, scale=False, weights=1./delta_emag.to_numpy(), bins=bins, color='red', lw=2., zorder=15)
 
     G_binned = np.array(G_binned)
     delta_mag_binned = np.array(delta_mag_binned)
@@ -74,10 +79,14 @@ def psfstudy_map(exposure, logger, args, op_args):
 
     # Do a nice plot
     plt.title("Aperture - PSF\n{} - {} (radius={}) - skylev={:.3f}".format(exposure.name, aper_str, aperradius, skylev))
-    plt.errorbar(gaia_df['Gmag'], delta_mag, yerr=delta_emag, ls='none', marker='.', markersize=5., lw=0.5)
-    plt.plot([G_min, G_max], [poly0(G_min), poly0(G_max)], label="Constant - $\\chi_\\nu^2={:.2f}$".format(poly0_chi2))
-    plt.plot([G_min, G_max], [poly1(G_min), poly1(G_max)], label="Linear - $\\chi_\\nu^2={:.2f}$".format(poly1_chi2))
-    plt.plot(G_linspace, poly2(G_linspace), label="Quadratic - $\\chi_\\nu^2={:.2f}$".format(poly2_chi2))
+    #plt.errorbar(gaia_df['Gmag'], delta_mag, yerr=delta_emag, ls='none', marker='.', markersize=5., lw=0.5)
+    # plt.plot([G_min, G_max], [poly0(G_min), poly0(G_max)], label="Constant - $\\chi_\\nu^2={:.2f}$".format(poly0_chi2))
+    # plt.plot([G_min, G_max], [poly1(G_min), poly1(G_max)], label="Linear - $\\chi_\\nu^2={:.2f}$".format(poly1_chi2))
+    # plt.plot(G_linspace, poly2(G_linspace), label="Quadratic - $\\chi_\\nu^2={:.2f}$".format(poly2_chi2))
+    plt.errorbar(pdf_df['mag'], delta_mag, yerr=delta_emag, ls='none', marker='.', markersize=5., lw=0.5)
+    plt.plot([mag_min, mag_max], [poly0(mag_min), poly0(mag_max)], label="Constant - $\\chi_\\nu^2={:.2f}$".format(poly0_chi2))
+    plt.plot([mag_min, mag_max], [poly1(mag_min), poly1(mag_max)], label="Linear - $\\chi_\\nu^2={:.2f}$".format(poly1_chi2))
+    plt.plot(mag_linspace, poly2(mag_linspace), label="Quadratic - $\\chi_\\nu^2={:.2f}$".format(poly2_chi2))
     plt.legend()
     plt.ylim(-1., 1.)
     plt.grid()

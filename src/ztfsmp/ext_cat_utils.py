@@ -3,8 +3,7 @@
 from astropy.time import Time
 
 
-gaiarefmjd = Time(2015.5, format='byear').mjd
-j2000mjd = Time(2000.0, format='jyear').mjd
+gaia_edr3_refmjd = Time(2016.0, format='byear').mjd
 
 
 mag2extcatmag = {'gaia': {'zg': 'BPmag',

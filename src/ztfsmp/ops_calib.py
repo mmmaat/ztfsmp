@@ -59,8 +59,6 @@ def star_averager(lightcurve, logger, args, op_args):
 
     w = 1./np.sqrt(dp.error**2+op_args['piedestal']**2)
 
-
-
     # Fit of the constant star model
     logger.info("Building model")
     model = LinearModel(list(range(len(dp.nt))), dp.star_index, np.ones_like(dp.star, dtype=float))
@@ -90,7 +88,12 @@ def star_averager(lightcurve, logger, args, op_args):
                                   'star': dp.star_map.keys()})
 
     # Compute star lightcurve rms, FAST
-    rms_flux = np.sqrt(np.bincount(dp.star_index[~solver.bads], weights=dp.flux[~solver.bads]**2)/np.bincount(dp.star_index[~solver.bads])-(np.bincount(dp.star_index[~solver.bads], weights=dp.flux[~solver.bads])/np.bincount(dp.star_index[~solver.bads]))**2)
+    w = 1./dp.error**2
+    s1 = np.bincount(dp.star_index[~solver.bads], weights=w[~solver.bads]*dp.flux[~solver.bads])
+    s2 = np.bincount(dp.star_index[~solver.bads], weights=w[~solver.bads]*dp.flux[~solver.bads]**2)
+    N = np.bincount(dp.star_index[~solver.bads])
+    rms_flux = np.sqrt((N*s2-s1**2)/(N*(N-1)))
+    # rms_flux = np.sqrt(np.bincount(dp.star_index[~solver.bads], weights=dp.flux[~solver.bads]**2)/np.bincount(dp.star_index[~solver.bads])-(np.bincount(dp.star_index[~solver.bads], weights=dp.flux[~solver.bads])/np.bincount(dp.star_index[~solver.bads]))**2)
     stars_df = stars_df.assign(rms_mag=2.5/np.log(10)*rms_flux/solver.model.params.free)
 
     stars_df.set_index('gaiaid', inplace=True)
