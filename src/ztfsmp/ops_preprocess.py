@@ -95,6 +95,8 @@ def mkcat2(exposure, logger, args, op_args):
         dist = np.sqrt((ra_center-gaia_stars_df['RA_ICRS'].to_numpy())**2+(dec_center-gaia_stars_df['DE_ICRS'].to_numpy())**2)
         m = (dist <= 0.7)
         gaia_stars_df = gaia_stars_df[m]
+        logger.info(f'Gaia stars close enough (<= 0.7) = {len(gaia_stars_df)}')
+
         gaia_stars_skycoords = SkyCoord(ra=gaia_stars_df['RA_ICRS'].to_numpy(), dec=gaia_stars_df['DE_ICRS'].to_numpy(), unit='deg')
         gaia_stars_inside = wcs.footprint_contains(gaia_stars_skycoords).tolist()
 
@@ -133,7 +135,9 @@ def mkcat2(exposure, logger, args, op_args):
 
         aperse_cat.df = aperse_cat.df.iloc[keep_idx]
 
-        i = match_pixel_space(gaia_stars_df[['x', 'y']].to_records(), aperse_cat.df[['x', 'y']].to_records(), radius=1.)
+        i = match_pixel_space(
+            gaia_stars_df[['x', 'y']].to_records(),
+            aperse_cat.df[['x', 'y']].to_records(), radius=1.)
         gaia_indices = i[i>=0]
         cat_indices = np.arange(len(aperse_cat.df))[i>=0]
 

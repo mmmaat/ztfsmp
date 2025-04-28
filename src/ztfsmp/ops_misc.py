@@ -83,7 +83,7 @@ def retrieve_catalogs(lightcurve, logger, args, op_args):
         else:
             logger.info("Not all fields are in the primary or secondary grid and no footprint file is provided.")
             logger.info("Retrieving catalogs for each individual quadrant... this may take some time as exposures need to be retrieved.")
-            [exposure.retrieve_exposure(force_rewrite=False) for exposure in exposures]
+            [exposure.retrieve_exposure(force_rewrite=False, ztfin2p3_detrend=True) for exposure in exposures]
             logger.info("All exposures retrieved.")
             field_rcid_pairs = [(exposure.field, exposure.rcid) for exposure in exposures]
             centroids = [exposure.center() for exposure in exposures]
@@ -156,8 +156,9 @@ def retrieve_catalogs(lightcurve, logger, args, op_args):
             if name == 'gaia':
                 # Change proper motion units
                 catalog_df = catalog_df.dropna(subset=['Gmag', 'e_Gmag', 'BPmag', 'e_BPmag', 'RPmag', 'e_RPmag', 'DE_ICRS', 'RA_ICRS', 'pmRA', 'pmDE'])
-                catalog_df = catalog_df.assign(pmRA=catalog_df['pmRA']/np.cos(np.deg2rad(catalog_df['DE_ICRS']))/1000./3600./365.25,
-                                               pmDE=catalog_df['pmDE']/1000./3600./365.25)
+                catalog_df = catalog_df.assign(
+                    pmRA=catalog_df['pmRA']/np.cos(np.deg2rad(catalog_df['DE_ICRS']))/1000./3600./365.25,
+                    pmDE=catalog_df['pmDE']/1000./3600./365.25)
 
             logger.info("Saving catalog into {}".format(catalog_path))
             catalog_df.to_parquet(catalog_path)

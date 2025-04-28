@@ -138,7 +138,7 @@ class Exposure(_Exposure):
                 raw_path,
                 store=True,
                 overwrite=True,
-                corr_pocket=kwargs['corr_pocket'],
+                corr_pocket=kwargs.get('corr_pocket', False),
                 outpath=self.path)
             image_path = pathlib.Path(paths[self.qid-1])
 
@@ -162,7 +162,7 @@ class Exposure(_Exposure):
                 radius=np.arange(3, 13))
 
             apcat_path = self.path / (
-                'apcat.parquet' if kwargs['corr_pocket']
+                'apcat.parquet' if kwargs.get('corr_pocket', False)
                 else 'apcat_nopocketcorr.parquet')
             store_aperture_catalog(apcat, apcat_path)
 
